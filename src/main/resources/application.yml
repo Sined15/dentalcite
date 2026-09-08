@@ -1,7 +1,12 @@
+# Render asigna el puerto por la variable PORT; el 8080 de respaldo mantiene
+# intactos el desarrollo local y docker-compose.
+server:
+  port: ${PORT:8080}
+
 spring:
   application:
     name: dentalcite
-  
+
   # Configuración de PostgreSQL
   datasource:
     url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5433/dentalcite_db}
