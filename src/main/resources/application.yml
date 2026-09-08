@@ -1,0 +1,65 @@
+spring:
+  application:
+    name: dentalcite
+  
+  # Configuración de PostgreSQL
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5433/dentalcite_db}
+    username: ${SPRING_DATASOURCE_USERNAME:admin}
+    password: ${SPRING_DATASOURCE_PASSWORD:admin_password}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 2
+
+  # Configuración de JPA / Hibernate
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate # Flyway crea las tablas, Hibernate solo valida
+    properties:
+      hibernate:
+        jdbc:
+          "[time_zone]": UTC # Fundamental para evitar problemas de fechas
+  
+  # Habilitar Flyway
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+
+
+  # Configuración de Redis
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      timeout: 1s
+      connect-timeout: 1s
+      repositories:
+        enabled: false
+
+# Configuración de Logs (Reducir alertas en consola)
+logging:
+  level:
+    # Ocultar advertencias por defecto de SpringDoc en dev
+    "[org.springframework.core.events.SpringDocAppInitializer]": ERROR
+    # Ocultar log innecesario de JTA Platform de Hibernate
+    "[org.hibernate.engine.transaction.jta.platform.internal.JtaPlatformInitiator]": ERROR
+
+# Configuración de OpenAPI (Swagger)
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+  api-docs:
+    path: /v3/api-docs
+
+# Configuración de Seguridad
+# Sin valor por defecto a propósito: si falta JWT_SECRET la aplicación no
+# arranca. Un default aquí viaja dentro del jar a todos los entornos, así que
+# un despliegue que olvidase la variable firmaría con una clave que cualquiera
+# puede leer en el repositorio. El valor de desarrollo lo aporta el entorno,
+# no el artefacto: docker-compose.yml para `docker compose up`, y el
+# spring-boot-maven-plugin para `./mvnw spring-boot:run` (RNF-11: una sola
+# orden, sin pasos manuales, sin secreto versionado).
+jwt:
+  secret: ${JWT_SECRET}

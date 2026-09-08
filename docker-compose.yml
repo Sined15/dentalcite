@@ -1,0 +1,88 @@
+# HU-01 / RNF-11: el sistema completo se levanta con `docker compose up`, sin
+# pasos manuales. Los cuatro servicios del informe son API, cliente, PostgreSQL
+# y Redis.
+services:
+  api:
+    build: .
+    ports:
+      - "8080:8080"
+    # Sin `condition: service_healthy` la API arrancaba antes de que PostgreSQL
+    # aceptase conexiones y Flyway fallaba en un `up` en frio.
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-dentalcite_db}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-admin}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-admin_password}
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: 6379
+      # Valor por defecto SOLO para desarrollo local, porque HU-01 exige que el
+      # sistema levante con una sola orden y sin pasos manuales (RNF-11).
+      #
+      # No reabre el agujero que cerro el commit anterior: el que se quito fue el
+      # de `application.yml`, que viaja dentro del jar a todos los entornos. La
+      # aplicacion sigue negandose a arrancar sin `jwt.secret`, asi que cualquier
+      # despliegue que no pase por este archivo falla si olvida la variable.
+      # Para un despliegue real, exportar JWT_SECRET o usar un .env propio.
+      JWT_SECRET: ${JWT_SECRET:-clave-de-desarrollo-local-cambiar-en-despliegue-000}
+      # Origenes del cliente autorizados a consumir la API desde el navegador.
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:4200}
+      TZ: UTC
+
+  # Cliente Angular, OPCIONAL. HU-01 pide que este archivo levante la API,
+  # PostgreSQL y Redis; el cliente «arranca con la orden equivalente en el suyo»,
+  # y tiene su propio compose en ../dentalcite-ui.
+  #
+  # Va tras un perfil porque `build` apunta a una carpeta hermana: sin el, un
+  # clon de solo este repositorio no podria levantar nada, al intentar construir
+  # un contexto que no existe.
+  #
+  #   docker compose up                     -> API + PostgreSQL + Redis
+  #   docker compose --profile cliente up   -> lo anterior mas el cliente
+  #
+  # El puerto 4200 no es negociable: es el unico origen que `cors.allowed-origins`
+  # admite por defecto. La URL de la API la lleva el bundle desde
+  # `src/environments/environment.ts`, resuelta en el navegador, no aqui.
+  client:
+    profiles: ["cliente"]
+    image: ${CLIENT_IMAGE:-dentalcite/client:latest}
+    build:
+      context: ../dentalcite-ui
+    ports:
+      - "4200:80"
+    depends_on:
+      api:
+        condition: service_started
+
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-admin_password}
+      POSTGRES_DB: ${POSTGRES_DB:-dentalcite_db}
+      TZ: UTC
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-admin} -d ${POSTGRES_DB:-dentalcite_db}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  pgdata:
