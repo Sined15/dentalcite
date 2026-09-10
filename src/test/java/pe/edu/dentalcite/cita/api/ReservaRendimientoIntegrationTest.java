@@ -57,7 +57,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 /**
  * RNF-02: «la reserva de cita, <strong>la consulta de citas</strong> y la consulta
  * de ficha responderán con p95 ≤ 1 s bajo diez usuarios concurrentes». Aquí se
- * miden las dos primeras; la ficha llega con HU-13.
+ * miden las dos primeras; la ficha, y la búsqueda que la precede, las mide
+ * {@code paciente/api/PacienteRendimientoIntegrationTest} desde HU-13.
  *
  * <p>Diez pacientes distintos reservan a la vez, cada uno sobre <em>su propia</em>
  * franja. Mide caudal, no exclusión: que dos reservas simultáneas sobre la

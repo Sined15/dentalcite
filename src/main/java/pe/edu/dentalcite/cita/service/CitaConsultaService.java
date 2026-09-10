@@ -80,6 +80,24 @@ public class CitaConsultaService {
                 .map(this::resumen);
     }
 
+    /**
+     * RF-08, HU-13: las citas de una ficha, pasadas y futuras, de la más reciente
+     * a la más antigua.
+     *
+     * <p>Lo consume {@code PacienteService} para pintar la ficha. Vive aquí y no
+     * allí porque lo que tiene trampa no es leer las filas sino traducirlas: la
+     * cita se guarda en UTC y se muestra en la hora local de la clínica, y esa
+     * conversión —con {@code app.zona-horaria}— ya está resuelta en
+     * {@link #resumen}. Una segunda copia del mapeador sería una segunda copia de
+     * la zona horaria, que es exactamente donde aparecen los desfases de una hora.
+     */
+    @Transactional(readOnly = true)
+    public List<CitaResumenDTO> deFicha(UUID fichaId) {
+        return citaRepository.findByFichaIdOrderByInicioDesc(fichaId).stream()
+                .map(this::resumen)
+                .toList();
+    }
+
     /** RF-21: la bitácora completa de una cita, en orden cronológico. */
     @Transactional(readOnly = true)
     public List<CitaHistorialDTO> historial(UUID citaId) {

@@ -84,7 +84,8 @@ class ContratoOpenApiIntegrationTest {
                 "/api/v1/citas/{id}/cancelar",
                 "/api/v1/citas/{id}/historial",
                 // Sprint 3
-                "/api/v1/pacientes")) {
+                "/api/v1/pacientes",
+                "/api/v1/pacientes/{id}")) {
             assertTrue(paths.has(ruta), "falta en el contrato la ruta " + ruta);
         }
     }

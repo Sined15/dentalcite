@@ -7,6 +7,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import pe.edu.dentalcite.cita.domain.Cita;
+import pe.edu.dentalcite.ficha.domain.Ficha;
 
 import java.time.OffsetDateTime;
 import java.util.List;
@@ -101,6 +102,70 @@ public interface CitaRepository extends JpaRepository<Cita, UUID> {
             """)
     Page<Cita> buscar(@Param("desde") OffsetDateTime desde, @Param("hasta") OffsetDateTime hasta,
             @Param("odontologoId") UUID odontologoId, @Param("estado") String estado,
+            Pageable pageable);
+
+    /**
+     * RF-08, HU-13: las citas de una ficha, pasadas y futuras, de la más reciente
+     * a la más antigua.
+     *
+     * <p>Vive aquí y no en {@code FichaRepository} por la dirección de la
+     * dependencia: {@code cita} ya conoce a {@code ficha}, mientras que meter una
+     * consulta sobre {@code Cita} en el repositorio de fichas haría que el
+     * dominio base del que cuelgan auth, usuario y odontólogo dependiese a su vez
+     * de citas.
+     *
+     * <p>El {@code @EntityGraph} evita el N+1 al pintar la ficha, por el mismo
+     * motivo que en {@link #buscar}. Incluye {@code ficha} aunque quien llama ya
+     * la tenga, porque el mapeador que se reutiliza la lee de cada cita.
+     */
+    @EntityGraph(attributePaths = {"ficha", "odontologo", "tratamiento", "consultorio"})
+    List<Cita> findByFichaIdOrderByInicioDesc(UUID fichaId);
+
+    /**
+     * HU-13, criterio 4: si este odontólogo ha tenido alguna cita con esta
+     * persona. Es lo que decide el 403 de RNF-06.
+     *
+     * <p>Una cita CANCELADA no cuenta: nunca llegó a existir como consulta, y
+     * dejar que abra la ficha —alergias incluidas— para siempre sería regalar el
+     * acceso a cambio de una reserva que el paciente deshizo. Sí cuenta la
+     * CONFIRMADA todavía futura, que es justo cuando el profesional necesita
+     * consultarla para preparar la sesión.
+     *
+     * <p>Se pregunta por la <em>ficha</em> del odontólogo y no por su registro
+     * porque quien llama parte de una cuenta autenticada, y de una cuenta a su
+     * registro de odontólogo solo se llega por la ficha que RN-11 comparte entre
+     * ambos. Resolverlo aquí ahorra la consulta intermedia.
+     */
+    @Query("""
+            SELECT COUNT(c) > 0 FROM Cita c
+            WHERE c.odontologo.ficha.id = :fichaDelOdontologoId
+              AND c.ficha.id = :fichaDelPacienteId
+              AND c.estado <> 'CANCELADA'
+            """)
+    boolean atendioAPorFichaDelOdontologo(@Param("fichaDelOdontologoId") UUID fichaDelOdontologoId,
+            @Param("fichaDelPacienteId") UUID fichaDelPacienteId);
+
+    /**
+     * RF-07 restringido a «sus pacientes»: el mismo listado que
+     * {@code FichaRepository.buscar}, acotado a las personas con las que este
+     * odontólogo ha tenido cita. Devuelve {@code Ficha} y no {@code Cita} porque
+     * lo que se lista son pacientes; el {@code EXISTS} evita el duplicado que
+     * daría unir por citas.
+     */
+    @Query("""
+            SELECT f FROM Ficha f
+            WHERE (:termino IS NULL
+                   OR LOWER(f.apellidos) LIKE :prefijo
+                   OR f.documento = :termino
+                   OR UPPER(f.numeroHistoria) = UPPER(:termino))
+              AND EXISTS (SELECT 1 FROM Cita c
+                          WHERE c.ficha = f
+                            AND c.odontologo.ficha.id = :fichaDelOdontologoId
+                            AND c.estado <> 'CANCELADA')
+            """)
+    Page<Ficha> buscarPacientesDeOdontologo(@Param("termino") String termino,
+            @Param("prefijo") String prefijo,
+            @Param("fichaDelOdontologoId") UUID fichaDelOdontologoId,
             Pageable pageable);
 
     /**

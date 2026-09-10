@@ -109,14 +109,22 @@ public class SecurityConfig {
                 .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/v1/citas").hasAnyAuthority("SCOPE_RECEPCIONISTA", "SCOPE_ADMINISTRADOR")
                 .requestMatchers(org.springframework.http.HttpMethod.PATCH, "/api/v1/citas/*/cancelar").hasAnyAuthority("SCOPE_RECEPCIONISTA", "SCOPE_ADMINISTRADOR")
                 .requestMatchers("/api/v1/citas/**").hasAnyAuthority("SCOPE_RECEPCIONISTA", "SCOPE_ADMINISTRADOR")
-                // HU-12: el alta presencial es de recepcion y administracion. El
-                // comodin va detras por la misma razon que en citas: sin el,
-                // cualquier ruta nueva bajo /api/v1/pacientes caeria en el
-                // anyRequest() del final y quedaria abierta a los cuatro roles.
-                // HU-13 lo ampliara —el ODONTOLOGO vera solo a sus pacientes y el
-                // PACIENTE solo la propia ficha, en lectura—, y esa comprobacion de
-                // propiedad no cabe en una regla de ruta: ira en su servicio.
+                // HU-12: el alta presencial es de recepcion y administracion.
                 .requestMatchers(org.springframework.http.HttpMethod.POST, "/api/v1/pacientes").hasAnyAuthority("SCOPE_RECEPCIONISTA", "SCOPE_ADMINISTRADOR")
+                // HU-13 · RF-07: la busqueda es del «personal». El PACIENTE no
+                // busca pacientes; que el odontologo solo vea a los suyos lo
+                // resuelve PacienteAccessGuard, restringiendo la consulta.
+                .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/v1/pacientes").hasAnyAuthority("SCOPE_RECEPCIONISTA", "SCOPE_ADMINISTRADOR", "SCOPE_ODONTOLOGO")
+                // HU-13 · RF-08: «Recepcionista y Administrador (edicion)».
+                .requestMatchers(org.springframework.http.HttpMethod.PUT, "/api/v1/pacientes/*").hasAnyAuthority("SCOPE_RECEPCIONISTA", "SCOPE_ADMINISTRADOR")
+                // La lectura de UNA ficha la alcanzan los cuatro roles, pero no
+                // sobre cualquiera: «sus pacientes» y «la propia» no son
+                // expresables como patron de ruta, asi que la decision vive en
+                // PacienteAccessGuard, con la ficha ya en la mano.
+                .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/v1/pacientes/*").authenticated()
+                // El comodin va al final por la misma razon que en citas: sin el,
+                // cualquier ruta nueva bajo /api/v1/pacientes caeria en el
+                // anyRequest() y quedaria abierta a los cuatro roles.
                 .requestMatchers("/api/v1/pacientes/**").hasAnyAuthority("SCOPE_RECEPCIONISTA", "SCOPE_ADMINISTRADOR")
                 // Catálogo clínico (Tabla 10): lectura para todo rol autenticado,
                 // escritura solo ADMINISTRADOR. La segunda regla no enumera métodos a

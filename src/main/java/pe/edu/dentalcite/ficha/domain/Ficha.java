@@ -48,6 +48,15 @@ public class Ficha {
     private String numeroHistoria;
 
     /**
+     * RF-08: la ficha se muestra «con datos, alergias y citas». Texto libre y no
+     * un catálogo: la clínica anota lo que el paciente declara, y encerrarlo en
+     * una lista cerrada obligaría a mantenerla al día para poder registrar algo
+     * tan corriente como una intolerancia.
+     */
+    @Column(columnDefinition = "text")
+    private String alergias;
+
+    /**
      * {@code @Builder.Default} solo alimenta al builder: un {@code new Ficha()}
      * dejaría el tipo a null y violaría el NOT NULL de la columna. Este gancho
      * cubre ambas formas de construir la entidad.
