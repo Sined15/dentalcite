@@ -58,13 +58,17 @@ app:
   # (HU-08) tiene que comparar unos con otros, y sin una zona de clínica declarada
   # esa comparación no está definida. Perú no aplica horario de verano.
   zona-horaria: ${APP_ZONA_HORARIA:America/Lima}
-  # RN-17: los umbrales de RN-05 y RN-07 se declaran como configuración
+  # RN-17: los umbrales de RN-05, RN-06 y RN-07 se declaran como configuración
   # externa, ajustable sin recompilar. Antes eran constantes en el código, de
   # modo que mover la antelación mínima obligaba a reconstruir el artefacto.
   citas:
     antelacion-minima-horas: ${APP_CITAS_ANTELACION_MINIMA_HORAS:2}
     horizonte-maximo-dias: ${APP_CITAS_HORIZONTE_MAXIMO_DIAS:90}
     maximo-activas-por-paciente: ${APP_CITAS_MAXIMO_ACTIVAS:3}
+    # RN-06 (HU-15): hasta cuándo puede el paciente cancelar por su cuenta. Pasada
+    # esa antelación la cancelación corresponde a recepción, que no tiene ventana.
+    # Es el tercer umbral que RN-17 saca a configuración.
+    antelacion-cancelacion-horas: ${APP_CITAS_ANTELACION_CANCELACION_HORAS:24}
     # HU-10: cuánto vive el bloqueo distribuido de una franja. Corto a propósito,
     # para que un proceso que muera con el bloqueo tomado no deje la franja
     # irreservable más que unos segundos. Se declara aquí, y no solo como valor

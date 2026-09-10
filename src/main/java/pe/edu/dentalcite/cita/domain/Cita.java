@@ -12,6 +12,7 @@ import pe.edu.dentalcite.consultorio.domain.Consultorio;
 import pe.edu.dentalcite.ficha.domain.Ficha;
 import pe.edu.dentalcite.odontologo.domain.Odontologo;
 import pe.edu.dentalcite.tratamiento.domain.Tratamiento;
+import pe.edu.dentalcite.usuario.domain.Usuario;
 
 import java.time.OffsetDateTime;
 import java.util.UUID;
@@ -83,6 +84,24 @@ public class Cita {
 
     @Column(name = "motivo_cancelacion", length = 255)
     private String motivoCancelacion;
+
+    /**
+     * Quién pidió la cita (HU-14 · RF-17). No coincide con {@link #ficha} desde
+     * que recepción puede reservar en nombre de otro: la ficha dice de quién es
+     * la cita y esto dice quién la encargó.
+     *
+     * <p>Nulo en las citas anteriores a HU-14 y en las de una ficha sin cuenta
+     * reservada por nadie identificado. No se escribe en {@link CitaHistorial}
+     * porque el alta no pasa por la bitácora —la fila hija provocaba
+     * interbloqueos en el camino disputado de HU-10—, y aquí no cuesta nada.
+     *
+     * <p>Lo lee HU-15: la excepción de RN-06 solo alcanza a la cita que el
+     * propio paciente reservó, y sin este dato no se distingue de la que le
+     * reservó recepción.
+     */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "creado_por_usuario_id")
+    private Usuario creadoPor;
 
     @CreationTimestamp
     @Column(name = "creado_en", updatable = false)

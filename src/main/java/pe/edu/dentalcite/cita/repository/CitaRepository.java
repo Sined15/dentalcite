@@ -77,30 +77,56 @@ public interface CitaRepository extends JpaRepository<Cita, UUID> {
     long countActivasDeFicha(@Param("fichaId") UUID fichaId);
 
     /**
-     * RF-18: las citas cuyo inicio cae en el rango, filtrables por odontólogo y
-     * por estado. Los dos filtros son opcionales —{@code null} significa «todos»—
-     * con el patrón {@code :param IS NULL OR …}, que deja la consulta en una sola
-     * pieza en vez de repartirla entre cuatro métodos o un Specification.
+     * RF-18: las citas cuyo inicio cae en el rango, filtrables por odontólogo,
+     * por estado y por paciente. <strong>Los cinco filtros son opcionales</strong>
+     * —{@code null} significa «todos»— con el patrón {@code :param IS NULL OR …},
+     * que deja la consulta en una sola pieza en vez de repartirla entre varios
+     * métodos o un Specification.
+     *
+     * <p>La sirven dos pantallas: la agenda de la clínica (HU-11), que siempre
+     * acota el rango y nunca la ficha, y «mis citas» (HU-15), que es al revés
+     * —fija la ficha y no acota el rango, porque el criterio pide ver «las
+     * futuras y las pasadas»—. Tener una sola consulta es lo que hace que el
+     * «ninguna de otro paciente» de HU-15 sea estructural: quien llama pasa la
+     * ficha del token y no hay forma de que la consulta devuelva otra.
      *
      * <p>El {@code @EntityGraph} evita el N+1 de pintar paciente, odontólogo,
-     * tratamiento y consultorio de cada fila. Las cuatro asociaciones son
-     * {@code @ManyToOne}, así que Hibernate las resuelve con JOIN sin romper la
-     * paginación; un {@code JOIN FETCH} sobre una colección sí la habría roto,
-     * paginando en memoria.
+     * tratamiento y consultorio de cada fila. Todas las asociaciones son
+     * {@code @ManyToOne} o {@code @OneToOne}, así que Hibernate las resuelve con
+     * JOIN sin romper la paginación; un {@code JOIN FETCH} sobre una colección sí
+     * la habría roto, paginando en memoria. {@code creadoPor.ficha} entra por
+     * HU-15: sin él, decidir si cada fila la reservó el propio paciente costaría
+     * dos consultas por cita.
+     *
+     * <p>Los dos extremos del rango se comparan con {@code COALESCE} y no con el
+     * {@code :param IS NULL OR …} de los demás filtros, y no por gusto: un
+     * parámetro que aparece suelto en {@code ? IS NULL} no tiene ningún tipo que
+     * PostgreSQL pueda inferir, y con un instante a nulo la consulta falla antes
+     * de ejecutarse con «could not determine data type of parameter». Dentro del
+     * {@code COALESCE} el tipo lo da la columna. Los otros tres filtros no
+     * padecen el problema porque su nulo sí llega tipado desde el controlador.
+     *
+     * <p>El sustituto del extremo superior es {@code c.fin}, que siempre es
+     * mayor que {@code c.inicio} —la duración es un múltiplo positivo de quince
+     * minutos (RN-04) y el {@code tstzrange} de {@code V13} no admitiría lo
+     * contrario—, de modo que sin {@code hasta} la condición es siempre cierta.
      *
      * <p>El orden lo impone el {@link org.springframework.data.domain.Pageable},
-     * que el controlador fija por defecto en {@code inicio}: «ordenadas por hora»
-     * es el criterio de aceptación.
+     * que cada controlador fija por defecto: «ordenadas por hora» es el criterio
+     * de aceptación de la agenda.
      */
-    @EntityGraph(attributePaths = {"ficha", "odontologo", "tratamiento", "consultorio"})
+    @EntityGraph(attributePaths = {"ficha", "odontologo", "tratamiento", "consultorio",
+            "creadoPor", "creadoPor.ficha"})
     @Query("""
             SELECT c FROM Cita c
-            WHERE c.inicio >= :desde
-              AND c.inicio < :hasta
+            WHERE c.inicio >= COALESCE(:desde, c.inicio)
+              AND c.inicio < COALESCE(:hasta, c.fin)
+              AND (:fichaId IS NULL OR c.ficha.id = :fichaId)
               AND (:odontologoId IS NULL OR c.odontologo.id = :odontologoId)
               AND (:estado IS NULL OR c.estado = :estado)
             """)
     Page<Cita> buscar(@Param("desde") OffsetDateTime desde, @Param("hasta") OffsetDateTime hasta,
+            @Param("fichaId") UUID fichaId,
             @Param("odontologoId") UUID odontologoId, @Param("estado") String estado,
             Pageable pageable);
 
@@ -118,7 +144,8 @@ public interface CitaRepository extends JpaRepository<Cita, UUID> {
      * motivo que en {@link #buscar}. Incluye {@code ficha} aunque quien llama ya
      * la tenga, porque el mapeador que se reutiliza la lee de cada cita.
      */
-    @EntityGraph(attributePaths = {"ficha", "odontologo", "tratamiento", "consultorio"})
+    @EntityGraph(attributePaths = {"ficha", "odontologo", "tratamiento", "consultorio",
+            "creadoPor", "creadoPor.ficha"})
     List<Cita> findByFichaIdOrderByInicioDesc(UUID fichaId);
 
     /**

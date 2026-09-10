@@ -518,11 +518,14 @@ class AgendaIntegrationTest {
     }
 
     @Test
-    void cancelar_comoPaciente_devuelve403() throws Exception {
-        // Cancelar la cita propia es HU-15, con la ventana de RN-06.
+    void cancelar_comoPacienteQueNoEsElTitular_devuelve403() throws Exception {
+        // Hasta HU-15 el 403 alcanzaba a todo PACIENTE, incluido el titular. Ahora
+        // el titular puede cancelar la suya dentro de la ventana de RN-06 —eso lo
+        // cubre CitasDelPacienteIntegrationTest—, y lo que sigue siendo 403 es la
+        // cita de otro. Esta cuenta no tiene ficha, así que ninguna es suya.
         UUID citaId = reservar(odontologoId, LocalTime.of(9, 0));
 
-        cancelar(citaId, "Ya no puedo ir", "SCOPE_PACIENTE", pacienteUsuarioId)
+        cancelar(citaId, "Ya no puedo ir", "SCOPE_PACIENTE", recepcionUsuarioId)
                 .andExpect(status().isForbidden());
 
         assertEquals("CONFIRMADA", citaRepository.findById(citaId).orElseThrow().getEstado());

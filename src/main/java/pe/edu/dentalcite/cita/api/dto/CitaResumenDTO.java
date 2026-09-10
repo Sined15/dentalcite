@@ -39,6 +39,22 @@ public class CitaResumenDTO {
     /** Solo presente en las canceladas (RF-20). */
     private String motivoCancelacion;
 
+    /**
+     * Si el paciente titular puede cancelarla ahora por su cuenta (HU-15 ·
+     * RN-06).
+     *
+     * <p>Lo calcula el servidor y no el cliente porque la regla tiene una
+     * excepción —la cita que el propio paciente reservó con menos de la
+     * antelación de la ventana— que depende de quién la creó y de cuándo, y
+     * reimplementarla en el navegador sería tener la misma regla en dos sitios y
+     * con dos relojes. El portal solo obedece: pinta el botón cuando esto es
+     * cierto.
+     *
+     * <p>No depende de quién consulta: dice lo que puede hacer el titular, de
+     * modo que la agenda de recepción lo trae igual aunque no lo use.
+     */
+    private Boolean cancelablePorPaciente;
+
     private Paciente paciente;
     private CitaResponseDTO.Referencia odontologo;
     private CitaResponseDTO.Referencia tratamiento;

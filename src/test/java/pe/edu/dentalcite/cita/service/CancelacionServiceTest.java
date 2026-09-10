@@ -64,7 +64,8 @@ class CancelacionServiceTest {
     @BeforeEach
     void inicializar() {
         servicio = new CancelacionService(citaRepository, historialRepository, usuarioRepository,
-                franjasCache, "America/Lima");
+                franjasCache, new VentanaDeCancelacion(24, new ReglasDeReserva(2, 90, 3)),
+                "America/Lima");
         recepcionistaId = UUID.randomUUID();
         autenticarComoRecepcion();
     }

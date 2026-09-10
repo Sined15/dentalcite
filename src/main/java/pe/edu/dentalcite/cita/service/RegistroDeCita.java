@@ -11,6 +11,7 @@ import pe.edu.dentalcite.disponibilidad.service.FranjasCache;
 import pe.edu.dentalcite.ficha.repository.FichaRepository;
 import pe.edu.dentalcite.odontologo.repository.OdontologoRepository;
 import pe.edu.dentalcite.tratamiento.repository.TratamientoRepository;
+import pe.edu.dentalcite.usuario.repository.UsuarioRepository;
 
 import java.time.OffsetDateTime;
 import java.util.UUID;
@@ -42,6 +43,7 @@ public class RegistroDeCita {
     private final OdontologoRepository odontologoRepository;
     private final TratamientoRepository tratamientoRepository;
     private final ConsultorioRepository consultorioRepository;
+    private final UsuarioRepository usuarioRepository;
     private final FranjasCache franjasCache;
 
     /**
@@ -51,7 +53,7 @@ public class RegistroDeCita {
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public Cita crear(UUID fichaId, UUID odontologoId, UUID tratamientoId, UUID consultorioId,
-            OffsetDateTime inicio, OffsetDateTime fin) {
+            OffsetDateTime inicio, OffsetDateTime fin, UUID creadoPorUsuarioId) {
 
         // `saveAndFlush` y no `save`: sin el flush explícito, la restricción de
         // exclusión saltaría al hacer commit —fuera del try/catch de quien
@@ -65,6 +67,11 @@ public class RegistroDeCita {
                 .inicio(inicio)
                 .fin(fin)
                 .estado(Cita.ESTADO_CONFIRMADA)
+                // HU-14: quien la encarga, que desde RF-17 ya no es deducible de
+                // `ficha_id`. Va en la propia fila y no en `citas_historial` por lo
+                // que explica el comentario de abajo.
+                .creadoPor(creadoPorUsuarioId == null ? null
+                        : usuarioRepository.getReferenceById(creadoPorUsuarioId))
                 .build());
 
         // El alta NO se escribe en `citas_historial`, y no es un olvido.

@@ -373,16 +373,19 @@ class ReservaIntegrationTest {
     }
 
     @Test
-    void reservar_comoRecepcionista_retornaForbidden() throws Exception {
-        // Reservar en nombre de un paciente es HU-14, todavía no.
+    void reservar_comoRecepcionistaSinIndicarPaciente_retornaBadRequest() throws Exception {
+        // Hasta HU-14 esto era un 403: recepción no podía reservar en absoluto.
+        // Ahora sí puede, pero su cuenta no tiene ficha propia, así que el cuerpo
+        // sin `pacienteId` está incompleto, no prohibido. Reservar en nombre de un
+        // paciente se prueba en ReservaDesdeRecepcionIntegrationTest.
         reservar(peticion(lunes, LocalTime.of(9, 0)), "SCOPE_RECEPCIONISTA")
-                .andExpect(status().isForbidden());
+                .andExpect(status().isBadRequest());
     }
 
     @Test
-    void reservar_comoAdministrador_retornaForbidden() throws Exception {
+    void reservar_comoAdministradorSinIndicarPaciente_retornaBadRequest() throws Exception {
         reservar(peticion(lunes, LocalTime.of(9, 0)), "SCOPE_ADMINISTRADOR")
-                .andExpect(status().isForbidden());
+                .andExpect(status().isBadRequest());
     }
 
     @Test
@@ -395,8 +398,8 @@ class ReservaIntegrationTest {
 
     @Test
     void reservar_soloCreaCitasParaLaFichaDelToken() throws Exception {
-        // HU-14: el cuerpo no admite paciente, así que no hay forma de reservar
-        // para otro aunque se intente.
+        // Aunque desde HU-14 el cuerpo admite `pacienteId`, al PACIENTE se le
+        // rechaza siempre: cuando no lo manda, la ficha sigue saliendo del token.
         String cuerpo = reservar(peticion(lunes, LocalTime.of(9, 0)))
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();

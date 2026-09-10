@@ -1,10 +1,14 @@
 package pe.edu.dentalcite.cita.service;
 
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpStatus;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
 import pe.edu.dentalcite.cita.api.dto.CitaHistorialDTO;
 import pe.edu.dentalcite.cita.api.dto.CitaResponseDTO;
 import pe.edu.dentalcite.cita.api.dto.CitaResumenDTO;
@@ -15,6 +19,7 @@ import pe.edu.dentalcite.cita.repository.CitaRepository;
 import pe.edu.dentalcite.common.exception.ResourceNotFoundException;
 import pe.edu.dentalcite.ficha.domain.Ficha;
 import pe.edu.dentalcite.usuario.domain.Usuario;
+import pe.edu.dentalcite.usuario.repository.UsuarioRepository;
 
 import java.time.Duration;
 import java.time.LocalDate;
@@ -25,7 +30,8 @@ import java.util.Set;
 import java.util.UUID;
 
 /**
- * Consulta de la agenda (HU-11 · RF-18) y de la bitácora de una cita (RF-21).
+ * Consulta de la agenda de la clínica (HU-11 · RF-18), de las citas del propio
+ * paciente (HU-15 · RF-18) y de la bitácora de una cita (RF-21).
  *
  * <p>Vive aparte de {@link CitaService} a propósito: aquel no es
  * {@code @Transactional} porque el reintento de RF-16 necesita abrir una
@@ -42,13 +48,19 @@ public class CitaConsultaService {
 
     private final CitaRepository citaRepository;
     private final CitaHistorialRepository historialRepository;
+    private final UsuarioRepository usuarioRepository;
+    private final VentanaDeCancelacion ventana;
     private final ZoneId zona;
 
     public CitaConsultaService(CitaRepository citaRepository,
             CitaHistorialRepository historialRepository,
+            UsuarioRepository usuarioRepository,
+            VentanaDeCancelacion ventana,
             @Value("${app.zona-horaria:America/Lima}") String zonaHoraria) {
         this.citaRepository = citaRepository;
         this.historialRepository = historialRepository;
+        this.usuarioRepository = usuarioRepository;
+        this.ventana = ventana;
         this.zona = ZoneId.of(zonaHoraria);
     }
 
@@ -76,7 +88,40 @@ public class CitaConsultaService {
         OffsetDateTime inicio = desde.atStartOfDay(zona).toOffsetDateTime();
         OffsetDateTime fin = hasta.plusDays(1).atStartOfDay(zona).toOffsetDateTime();
 
-        return citaRepository.buscar(inicio, fin, odontologoId, estadoNormalizado, pageable)
+        return citaRepository.buscar(inicio, fin, null, odontologoId, estadoNormalizado, pageable)
+                .map(this::resumen);
+    }
+
+    /**
+     * HU-15 · RF-18 ampliado al paciente: «veré las futuras y las pasadas con su
+     * estado, y ninguna de otro paciente».
+     *
+     * <p>La ficha <strong>se resuelve aquí dentro, a partir del token</strong>, y
+     * no se recibe como parámetro. Es deliberado: si fuera un argumento, el
+     * «ninguna de otro paciente» dependería de que cada llamante se acordase de
+     * pasar la correcta, y bastaría un controlador descuidado para convertirlo en
+     * una fuga. Así no hay forma de pedir la de otro.
+     *
+     * <p>El rango es opcional aquí, al revés que en la agenda de la clínica: el
+     * criterio pide ver las futuras <em>y</em> las pasadas, así que omitirlo
+     * significa «todas» y no un error.
+     */
+    @Transactional(readOnly = true)
+    public Page<CitaResumenDTO> mias(LocalDate desde, LocalDate hasta,
+            String estado, Pageable pageable) {
+
+        UUID fichaId = fichaDelPacienteAutenticado();
+
+        if (desde != null && hasta != null && desde.isAfter(hasta)) {
+            throw new IllegalArgumentException("La fecha 'desde' no puede ser posterior a 'hasta'");
+        }
+        String estadoNormalizado = normalizarEstado(estado);
+
+        OffsetDateTime inicio = desde == null ? null : desde.atStartOfDay(zona).toOffsetDateTime();
+        OffsetDateTime fin = hasta == null ? null
+                : hasta.plusDays(1).atStartOfDay(zona).toOffsetDateTime();
+
+        return citaRepository.buscar(inicio, fin, fichaId, null, estadoNormalizado, pageable)
                 .map(this::resumen);
     }
 
@@ -110,6 +155,33 @@ public class CitaConsultaService {
     }
 
     /**
+     * La ficha de quien pregunta. Falla cerrado: sin credenciales, sin cuenta o
+     * sin ficha no hay «mis citas» que devolver, y una lista vacía sería peor
+     * que un error porque parecería que no tiene ninguna.
+     */
+    private UUID fichaDelPacienteAutenticado() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null || !auth.isAuthenticated()) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "No autenticado");
+        }
+        UUID usuarioId;
+        try {
+            // El subject del JWT es el UUID del usuario (JwtService.generateToken).
+            usuarioId = UUID.fromString(auth.getName());
+        } catch (IllegalArgumentException e) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Usuario no encontrado");
+        }
+        Usuario usuario = usuarioRepository.findById(usuarioId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED,
+                        "Usuario no encontrado"));
+        if (usuario.getFicha() == null) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                    "La cuenta no tiene una ficha clínica asociada");
+        }
+        return usuario.getFicha().getId();
+    }
+
+    /**
      * Un estado desconocido no devuelve una página vacía: eso convertiría una
      * errata en «no hay citas», que es la respuesta más difícil de depurar.
      */
@@ -136,6 +208,8 @@ public class CitaConsultaService {
                 .zonaHoraria(zona.getId())
                 .estado(cita.getEstado())
                 .motivoCancelacion(cita.getMotivoCancelacion())
+                // RN-06, calculada una sola vez y en un solo sitio (HU-15).
+                .cancelablePorPaciente(ventana.puedeCancelarElPaciente(cita, OffsetDateTime.now(zona)))
                 .paciente(paciente(cita.getFicha()))
                 .odontologo(referencia(cita.getOdontologo().getId(),
                         (cita.getOdontologo().getNombres() + " " + cita.getOdontologo().getApellidos()).trim()))

@@ -4,11 +4,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataAccessException;
 import org.springframework.dao.DataIntegrityViolationException;
-import org.springframework.http.HttpStatus;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
-import org.springframework.web.server.ResponseStatusException;
 import pe.edu.dentalcite.cita.api.dto.CitaRequestDTO;
 import pe.edu.dentalcite.cita.api.dto.CitaResponseDTO;
 import pe.edu.dentalcite.cita.domain.Cita;
@@ -23,8 +19,6 @@ import pe.edu.dentalcite.odontologo.domain.Odontologo;
 import pe.edu.dentalcite.odontologo.repository.OdontologoRepository;
 import pe.edu.dentalcite.tratamiento.domain.Tratamiento;
 import pe.edu.dentalcite.tratamiento.repository.TratamientoRepository;
-import pe.edu.dentalcite.usuario.domain.Usuario;
-import pe.edu.dentalcite.usuario.repository.UsuarioRepository;
 
 import java.time.LocalTime;
 import java.time.OffsetDateTime;
@@ -33,11 +27,14 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * Reserva de cita desde el portal (HU-09 · RF-15) con exclusión mutua (HU-10 ·
- * RF-16, RN-01, RN-02).
+ * Reserva de cita, desde el portal (HU-09 · RF-15) y desde recepción (HU-14 ·
+ * RF-17), con exclusión mutua (HU-10 · RF-16, RN-01, RN-02).
  *
- * <p>El paciente reserva <strong>para sí mismo</strong>: la ficha sale del token,
- * nunca del cuerpo. Reservar en nombre de otro es HU-14.
+ * <p>Para quién se reserva y quién lo pide lo decide {@link AutorDeLaReserva}:
+ * el paciente reserva para sí mismo y su ficha sale del token, mientras que
+ * recepción indica la ficha en el cuerpo. La operación es la misma —las mismas
+ * reglas de calendario, la misma exclusión mutua— y solo cambia de dónde sale
+ * el paciente, así que no se duplica.
  *
  * <p>La comprobación de que la franja existe <em>no se reimplementa aquí</em>: se
  * le pregunta al motor de disponibilidad. Horario, bloqueos, feriados, ocupación y
@@ -67,8 +64,6 @@ import java.util.UUID;
 @Service
 public class CitaService {
 
-    private static final String ROL_PACIENTE = "SCOPE_PACIENTE";
-
     /**
      * Cuántas veces se repite el INSERT sobre el mismo consultorio cuando
      * PostgreSQL aborta la transacción por interbloqueo. Uno basta: el ciclo de
@@ -77,7 +72,7 @@ public class CitaService {
     private static final int REINTENTOS_TRAS_INTERBLOQUEO = 1;
 
     private final CitaRepository citaRepository;
-    private final UsuarioRepository usuarioRepository;
+    private final AutorDeLaReserva autorDeLaReserva;
     private final TratamientoRepository tratamientoRepository;
     private final OdontologoRepository odontologoRepository;
     private final ConsultorioRepository consultorioRepository;
@@ -88,7 +83,7 @@ public class CitaService {
     private final ZoneId zona;
 
     public CitaService(CitaRepository citaRepository,
-            UsuarioRepository usuarioRepository,
+            AutorDeLaReserva autorDeLaReserva,
             TratamientoRepository tratamientoRepository,
             OdontologoRepository odontologoRepository,
             ConsultorioRepository consultorioRepository,
@@ -98,7 +93,7 @@ public class CitaService {
             ReglasDeReserva reglas,
             @Value("${app.zona-horaria:America/Lima}") String zonaHoraria) {
         this.citaRepository = citaRepository;
-        this.usuarioRepository = usuarioRepository;
+        this.autorDeLaReserva = autorDeLaReserva;
         this.tratamientoRepository = tratamientoRepository;
         this.odontologoRepository = odontologoRepository;
         this.consultorioRepository = consultorioRepository;
@@ -122,7 +117,8 @@ public class CitaService {
      * criterio de aceptación exige.
      */
     public CitaResponseDTO reservar(CitaRequestDTO peticion) {
-        UUID fichaId = fichaDelPacienteAutenticado();
+        AutorDeLaReserva.Reserva autor = autorDeLaReserva.resolver(peticion.getPacienteId());
+        UUID fichaId = autor.fichaId();
 
         Tratamiento tratamiento = tratamientoRepository.findWithEspecialidadById(peticion.getTratamientoId())
                 .filter(t -> Boolean.TRUE.equals(t.getActivo()))
@@ -148,7 +144,8 @@ public class CitaService {
 
         try {
             verificarFranjaOfrecida(peticion);
-            return crearReintentandoConsultorio(fichaId, odontologo, tratamiento, inicio, fin, peticion.getHora());
+            return crearReintentandoConsultorio(fichaId, autor.usuarioId(), odontologo, tratamiento,
+                    inicio, fin, peticion.getHora());
         } finally {
             bloqueoDeFranja.liberar(bloqueo);
         }
@@ -164,8 +161,9 @@ public class CitaService {
      * ({@link RegistroDeCita}); si no, el primer rechazo dejaría la transacción
      * inservible para el segundo intento.
      */
-    private CitaResponseDTO crearReintentandoConsultorio(UUID fichaId, Odontologo odontologo,
-            Tratamiento tratamiento, OffsetDateTime inicio, OffsetDateTime fin, LocalTime hora) {
+    private CitaResponseDTO crearReintentandoConsultorio(UUID fichaId, UUID autorId,
+            Odontologo odontologo, Tratamiento tratamiento, OffsetDateTime inicio,
+            OffsetDateTime fin, LocalTime hora) {
 
         List<UUID> libres = disponibilidadService.consultoriosLibres(inicio, fin);
         if (libres.isEmpty()) {
@@ -178,7 +176,7 @@ public class CitaService {
             if (consultorio == null) {
                 continue;
             }
-            Cita cita = intentarCrear(fichaId, odontologo, tratamiento, consultorioId, inicio, fin);
+            Cita cita = intentarCrear(fichaId, autorId, odontologo, tratamiento, consultorioId, inicio, fin);
             if (cita != null) {
                 return mapear(cita, tratamiento, odontologo, consultorio, hora);
             }
@@ -197,13 +195,13 @@ public class CitaService {
      * @throws IllegalStateException si quien se adelantó fue en la agenda del
      *         odontólogo, donde no hay nada que reintentar.
      */
-    private Cita intentarCrear(UUID fichaId, Odontologo odontologo, Tratamiento tratamiento,
-            UUID consultorioId, OffsetDateTime inicio, OffsetDateTime fin) {
+    private Cita intentarCrear(UUID fichaId, UUID autorId, Odontologo odontologo,
+            Tratamiento tratamiento, UUID consultorioId, OffsetDateTime inicio, OffsetDateTime fin) {
 
         for (int intento = 0; intento <= REINTENTOS_TRAS_INTERBLOQUEO; intento++) {
             try {
                 return registroDeCita.crear(fichaId, odontologo.getId(), tratamiento.getId(),
-                        consultorioId, inicio, fin);
+                        consultorioId, inicio, fin, autorId);
 
             } catch (DataAccessException e) {
                 if (ConflictoDeSolape.esInterbloqueo(e)) {
@@ -236,45 +234,6 @@ public class CitaService {
             }
         }
         return null;
-    }
-
-    /**
-     * RNF-04 y HU-14: la ficha sale del token.
-     *
-     * @return el identificador de la ficha. Se devuelve el id y no la entidad
-     *         porque este método corre fuera de toda transacción: la entidad
-     *         quedaría desligada de su sesión y su proxy no sobreviviría al salto
-     *         a la transacción del INSERT.
-     */
-    private UUID fichaDelPacienteAutenticado() {
-        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        if (auth == null || !auth.isAuthenticated()) {
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "No autenticado");
-        }
-        boolean esPaciente = auth.getAuthorities().stream()
-                .anyMatch(a -> ROL_PACIENTE.equals(a.getAuthority()));
-        if (!esPaciente) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
-                    "Solo el paciente reserva para sí mismo; la reserva en nombre de otro no está disponible");
-        }
-
-        UUID usuarioId;
-        try {
-            usuarioId = UUID.fromString(auth.getName());
-        } catch (IllegalArgumentException e) {
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Usuario no encontrado");
-        }
-
-        Usuario usuario = usuarioRepository.findById(usuarioId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Usuario no encontrado"));
-
-        if (usuario.getFicha() == null) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
-                    "La cuenta no tiene una ficha clínica asociada");
-        }
-        // Leer el identificador no inicializa el proxy, así que es seguro fuera de
-        // la sesión de persistencia.
-        return usuario.getFicha().getId();
     }
 
     /** RN-05, con los umbrales que RN-17 saca a configuración. */

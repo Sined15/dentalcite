@@ -81,6 +81,7 @@ class ContratoOpenApiIntegrationTest {
                 // Sprint 2
                 "/api/v1/disponibilidad",
                 "/api/v1/citas",
+                "/api/v1/citas/mias",
                 "/api/v1/citas/{id}/cancelar",
                 "/api/v1/citas/{id}/historial",
                 // Sprint 3

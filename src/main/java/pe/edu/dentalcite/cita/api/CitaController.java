@@ -35,7 +35,7 @@ import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 
-@Tag(name = "Citas", description = "M5 · Reserva desde el portal (HU-09, RF-15) y agenda de recepcion (HU-11, RF-18)")
+@Tag(name = "Citas", description = "M5 · Reserva desde el portal (HU-09, RF-15) y desde recepcion (HU-14, RF-17), agenda de recepcion (HU-11, RF-18) y citas del paciente (HU-15, RF-18, RF-19)")
 @RestController
 @RequestMapping("/api/v1/citas")
 @RequiredArgsConstructor
@@ -46,18 +46,20 @@ public class CitaController {
     private final CancelacionService cancelacionService;
 
     @Operation(summary = "Reservar una cita",
-            description = "HU-09 · RF-15 · PACIENTE, para si mismo: el paciente sale del token y no del cuerpo,"
-                    + " asi que no se puede reservar en nombre de otro (eso es HU-14). La franja se indica con la"
-                    + " fecha y la hora locales de la clinica que devolvio la consulta de disponibilidad. La cita"
-                    + " nace CONFIRMADA con un codigo unico (RN-09) y con un consultorio asignado automaticamente"
-                    + " (RF-14). Se comprueba la ventana de reserva (RN-05), la cuota de citas activas (RN-07) y"
+            description = "HU-09 · RF-15 · PACIENTE, para si mismo: su ficha sale del token y `pacienteId` esta"
+                    + " prohibido. HU-14 · RF-17 · RECEPCIONISTA y ADMINISTRADOR, en nombre de cualquier paciente"
+                    + " registrado: para ellos `pacienteId` es obligatorio, y funciona igual con un paciente que no"
+                    + " tiene cuenta de acceso. La franja se indica con la fecha y la hora locales de la clinica que"
+                    + " devolvio la consulta de disponibilidad. La cita nace CONFIRMADA con un codigo unico (RN-09),"
+                    + " con un consultorio asignado automaticamente (RF-14) y dejando registrado quien la creo. Se"
+                    + " comprueba la ventana de reserva (RN-05), la cuota de citas activas del paciente (RN-07) y"
                     + " que la franja siga ofreciendose.")
     @ApiResponses({
             @ApiResponse(responseCode = "201", description = "Cita creada, con su codigo unico"),
-            @ApiResponse(responseCode = "400", description = "Cuerpo incompleto o mal formado"),
+            @ApiResponse(responseCode = "400", description = "Cuerpo incompleto o mal formado, o reserva de recepcion sin `pacienteId`"),
             @ApiResponse(responseCode = "401", description = "Sin token o con token revocado"),
-            @ApiResponse(responseCode = "403", description = "El rol no es PACIENTE, o la cuenta no tiene ficha (RNF-04)"),
-            @ApiResponse(responseCode = "404", description = "El tratamiento o el odontologo no existen o estan de baja"),
+            @ApiResponse(responseCode = "403", description = "El rol no puede reservar, un PACIENTE envio `pacienteId`, o la cuenta no tiene ficha (RNF-04)"),
+            @ApiResponse(responseCode = "404", description = "El paciente, el tratamiento o el odontologo no existen o estan de baja"),
             @ApiResponse(responseCode = "409", description = "Cuota de citas activas agotada (RN-07), o la franja ya no esta disponible"),
             @ApiResponse(responseCode = "422", description = "La franja incumple la ventana de reserva: menos de dos horas o mas de noventa dias (RN-05)")
     })
@@ -72,7 +74,7 @@ public class CitaController {
                     + " rango de dias indicado, ambos extremos incluidos, con su paciente, su hora y su consultorio,"
                     + " ordenadas por hora. Los filtros de odontologo y de estado son opcionales; omitirlos equivale"
                     + " a «todos». Las horas son locales de la clinica y la respuesta declara su zona. La consulta"
-                    + " del propio paciente sobre sus citas es HU-15.")
+                    + " del propio paciente sobre sus citas es GET /api/v1/citas/mias.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Pagina de citas, ordenadas por hora"),
             @ApiResponse(responseCode = "400", description = "Rango invertido, fechas ausentes o estado desconocido"),
@@ -95,19 +97,49 @@ public class CitaController {
         return citaConsultaService.consultar(desde, hasta, odontologoId, estado, pageable);
     }
 
+    @Operation(summary = "Consultar mis citas",
+            description = "HU-15 · RF-18 · PACIENTE. Sus propias citas, futuras y pasadas, con su estado. La ficha"
+                    + " sale del token: no hay forma de pedir las de otro. El rango de dias es **opcional** aqui,"
+                    + " al reves que en la agenda de la clinica, porque el criterio pide ver las futuras y las"
+                    + " pasadas; omitirlo equivale a «todas». Cada fila trae `cancelablePorPaciente`, que dice si"
+                    + " la ventana de RN-06 permite cancelarla ahora mismo.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Pagina de citas propias, de la mas reciente a la mas antigua"),
+            @ApiResponse(responseCode = "400", description = "Rango invertido o estado desconocido"),
+            @ApiResponse(responseCode = "401", description = "Sin token o con token revocado"),
+            @ApiResponse(responseCode = "403", description = "El rol no es PACIENTE, o la cuenta no tiene ficha (RNF-04)")
+    })
+    @GetMapping("/mias")
+    public Page<CitaResumenDTO> misCitas(
+            @Parameter(description = "Primer dia del rango, inclusive (AAAA-MM-DD). Omitirlo equivale a «sin limite»")
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate desde,
+            @Parameter(description = "Ultimo dia del rango, inclusive (AAAA-MM-DD). Omitirlo equivale a «sin limite»")
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate hasta,
+            @Parameter(description = "CONFIRMADA, ATENDIDA, NO_ASISTIO o CANCELADA (RN-09). Omitirlo equivale a «todos»")
+            @RequestParam(required = false) String estado,
+            // De la mas reciente a la mas antigua: quien abre sus citas viene a
+            // ver la siguiente, no la de hace dos anos.
+            @PageableDefault(size = 20, sort = "inicio", direction = Sort.Direction.DESC) Pageable pageable) {
+        return citaConsultaService.mias(desde, hasta, estado, pageable);
+    }
+
     @Operation(summary = "Cancelar una cita",
             description = "HU-11 · RF-20 · RECEPCIONISTA y ADMINISTRADOR, **sin ventana**: se puede cancelar"
-                    + " cualquier cita confirmada, incluso dentro de las veinticuatro horas previas a su inicio. La"
-                    + " ventana de RN-06 solo limita al paciente cancelando la suya, que es HU-15. La cita pasa a"
+                    + " cualquier cita confirmada, incluso dentro de las veinticuatro horas previas a su inicio."
+                    + " HU-15 · RF-19 · PACIENTE, **solo la suya y dentro de la ventana de RN-06**: hasta"
+                    + " veinticuatro horas antes del inicio, salvo que la reservara el mismo con menos antelacion,"
+                    + " en cuyo caso puede deshacerla mientras se conserve el minimo de RN-05. La cita pasa a"
                     + " CANCELADA conservando su fila intacta (RN-12), la transicion queda en la bitacora con fecha,"
                     + " responsable y motivo (RF-21), y la franja vuelve a ofrecerse de inmediato.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Cita cancelada"),
             @ApiResponse(responseCode = "400", description = "Cancelacion sin motivo"),
             @ApiResponse(responseCode = "401", description = "Sin token o con token revocado"),
-            @ApiResponse(responseCode = "403", description = "El rol no puede cancelar citas de terceros (RNF-04)"),
-            @ApiResponse(responseCode = "404", description = "No existe una cita con ese identificador"),
-            @ApiResponse(responseCode = "409", description = "La cita ya no esta CONFIRMADA: RN-09 no admite retornos")
+            @ApiResponse(responseCode = "403", description = "La cita no es suya, o no existe y quien pregunta es"
+                    + " un PACIENTE: los dos casos responden igual para no revelar cuales existen (RNF-04)"),
+            @ApiResponse(responseCode = "404", description = "No existe una cita con ese identificador (solo para recepcion y administracion)"),
+            @ApiResponse(responseCode = "409", description = "La cita ya no esta CONFIRMADA: RN-09 no admite retornos"),
+            @ApiResponse(responseCode = "422", description = "El paciente esta fuera de la ventana de RN-06: debe contactar con recepcion")
     })
     @PatchMapping("/{id}/cancelar")
     public CitaResponseDTO cancelar(@PathVariable UUID id,

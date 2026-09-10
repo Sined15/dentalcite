@@ -95,10 +95,12 @@ public class SecurityConfig {
                 // pero RNF-04 se audita leyendo este metodo: una ruta que no aparece
                 // aqui obliga a deducir su permiso en vez de leerlo.
                 .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/v1/disponibilidad").authenticated()
-                // HU-09: solo el PACIENTE reserva, y solo para si mismo. HU-14
-                // ampliara esta regla a RECEPCIONISTA y ADMINISTRADOR cuando
-                // exista la reserva en nombre de terceros.
-                .requestMatchers(org.springframework.http.HttpMethod.POST, "/api/v1/citas").hasAuthority("SCOPE_PACIENTE")
+                // HU-09 y HU-14: reservan el PACIENTE (para si mismo, sin
+                // `pacienteId`) y recepcion o administracion (en nombre de otro,
+                // con `pacienteId`). La ruta no distingue esos dos casos porque
+                // «para si mismo» no es un patron de ruta: lo decide
+                // AutorDeLaReserva, que es quien tiene delante el cuerpo y el rol.
+                .requestMatchers(org.springframework.http.HttpMethod.POST, "/api/v1/citas").hasAnyAuthority("SCOPE_PACIENTE", "SCOPE_RECEPCIONISTA", "SCOPE_ADMINISTRADOR")
                 // HU-11: la agenda de la clinica, su bitacora y la cancelacion sin
                 // ventana son de recepcion y administracion. La regla comodin va al
                 // final y es deliberada: sin ella, cualquier ruta nueva bajo
@@ -107,7 +109,14 @@ public class SecurityConfig {
                 // paciente consulte y cancele *lo suyo* es HU-15, y necesitara sus
                 // propias rutas o una comprobacion de propiedad en el servicio.
                 .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/v1/citas").hasAnyAuthority("SCOPE_RECEPCIONISTA", "SCOPE_ADMINISTRADOR")
-                .requestMatchers(org.springframework.http.HttpMethod.PATCH, "/api/v1/citas/*/cancelar").hasAnyAuthority("SCOPE_RECEPCIONISTA", "SCOPE_ADMINISTRADOR")
+                // HU-15: las citas del propio paciente. Va **antes** del comodin
+                // de mas abajo, que exige recepcion o administracion: declarada
+                // despues, el paciente recibiria 403 en su propia consulta.
+                .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/v1/citas/mias").hasAuthority("SCOPE_PACIENTE")
+                // HU-15: el paciente cancela **la suya** y dentro de la ventana de
+                // RN-06. Que sea suya y que la ventana lo permita no son patrones
+                // de ruta: los decide CancelacionService, con la cita delante.
+                .requestMatchers(org.springframework.http.HttpMethod.PATCH, "/api/v1/citas/*/cancelar").hasAnyAuthority("SCOPE_PACIENTE", "SCOPE_RECEPCIONISTA", "SCOPE_ADMINISTRADOR")
                 .requestMatchers("/api/v1/citas/**").hasAnyAuthority("SCOPE_RECEPCIONISTA", "SCOPE_ADMINISTRADOR")
                 // HU-12: el alta presencial es de recepcion y administracion.
                 .requestMatchers(org.springframework.http.HttpMethod.POST, "/api/v1/pacientes").hasAnyAuthority("SCOPE_RECEPCIONISTA", "SCOPE_ADMINISTRADOR")

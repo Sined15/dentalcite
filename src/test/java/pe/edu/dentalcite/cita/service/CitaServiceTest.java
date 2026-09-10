@@ -1,6 +1,5 @@
 package pe.edu.dentalcite.cita.service;
 
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -8,11 +7,6 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.CannotAcquireLockException;
 import org.springframework.dao.DataIntegrityViolationException;
-import org.springframework.http.HttpStatus;
-import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
-import org.springframework.security.core.authority.SimpleGrantedAuthority;
-import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.web.server.ResponseStatusException;
 import pe.edu.dentalcite.cita.api.dto.CitaRequestDTO;
 import pe.edu.dentalcite.cita.api.dto.CitaResponseDTO;
 import pe.edu.dentalcite.cita.domain.Cita;
@@ -31,8 +25,6 @@ import pe.edu.dentalcite.odontologo.domain.Odontologo;
 import pe.edu.dentalcite.odontologo.repository.OdontologoRepository;
 import pe.edu.dentalcite.tratamiento.domain.Tratamiento;
 import pe.edu.dentalcite.tratamiento.repository.TratamientoRepository;
-import pe.edu.dentalcite.usuario.domain.Usuario;
-import pe.edu.dentalcite.usuario.repository.UsuarioRepository;
 
 import java.time.LocalDate;
 import java.time.LocalTime;
@@ -56,8 +48,10 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * Las reglas de HU-09, una por prueba. El cálculo de la franja no se ejercita
- * aquí: el servicio se lo delega al motor, y por eso el motor se puede simular.
+ * Las reglas de HU-09 y HU-14, una por prueba. Dos cosas no se ejercitan aquí
+ * porque el servicio las delega y por eso se pueden simular: el cálculo de la
+ * franja, que es del motor de disponibilidad, y quién puede reservar para quién,
+ * que es de {@link AutorDeLaReserva} y tiene sus propias pruebas.
  */
 @ExtendWith(MockitoExtension.class)
 class CitaServiceTest {
@@ -65,7 +59,7 @@ class CitaServiceTest {
     private static final ZoneId ZONA = ZoneId.of("America/Lima");
 
     @Mock private CitaRepository citaRepository;
-    @Mock private UsuarioRepository usuarioRepository;
+    @Mock private AutorDeLaReserva autorDeLaReserva;
     @Mock private TratamientoRepository tratamientoRepository;
     @Mock private OdontologoRepository odontologoRepository;
     @Mock private ConsultorioRepository consultorioRepository;
@@ -80,7 +74,6 @@ class CitaServiceTest {
     private UUID odontologoId;
     private UUID consultorioId;
     private Ficha ficha;
-    private Usuario usuario;
     private Tratamiento tratamiento;
     private Odontologo odontologo;
     private Consultorio consultorio;
@@ -91,7 +84,7 @@ class CitaServiceTest {
 
     @BeforeEach
     void setUp() {
-        citaService = new CitaService(citaRepository, usuarioRepository, tratamientoRepository,
+        citaService = new CitaService(citaRepository, autorDeLaReserva, tratamientoRepository,
                 odontologoRepository, consultorioRepository, disponibilidadService,
                 bloqueoDeFranja, registroDeCita, new ReglasDeReserva(2, 90, 3), "America/Lima");
 
@@ -103,9 +96,6 @@ class CitaServiceTest {
 
         ficha = Ficha.builder().id(UUID.randomUUID()).documento("12345678")
                 .nombres("Ana").apellidos("Torres").numeroHistoria("HC-00001").build();
-        usuario = Usuario.builder().id(usuarioId).correo("paciente@demo.com").rol("PACIENTE")
-                .activo(true).ficha(ficha).build();
-
         Especialidad especialidad = Especialidad.builder().id(UUID.randomUUID())
                 .nombre("ENDODONCIA").activo(true).build();
         tratamiento = Tratamiento.builder().id(tratamientoId).codigo("T-001").nombre("Endodoncia")
@@ -114,30 +104,11 @@ class CitaServiceTest {
                 .apellidos("Pérez").activo(true).especialidades(Set.of(especialidad)).build();
         consultorio = Consultorio.builder().id(consultorioId).nombre("Consultorio 2")
                 .inoperativo(false).build();
-
-        autenticarComoPaciente();
-    }
-
-    @AfterEach
-    void limpiarContexto() {
-        // Sin esto el contexto de seguridad se filtra entre pruebas y las de 403
-        // pasarían por la razón equivocada.
-        SecurityContextHolder.clearContext();
     }
 
     // ------------------------------------------------------------------
     // Utilidades
     // ------------------------------------------------------------------
-
-    private void autenticarComoPaciente() {
-        autenticar(usuarioId.toString(), "SCOPE_PACIENTE");
-    }
-
-    private void autenticar(String nombre, String autoridad) {
-        SecurityContextHolder.getContext().setAuthentication(
-                new UsernamePasswordAuthenticationToken(nombre, "n/a",
-                        List.of(new SimpleGrantedAuthority(autoridad))));
-    }
 
     private CitaRequestDTO peticion() {
         return CitaRequestDTO.builder()
@@ -147,7 +118,8 @@ class CitaServiceTest {
 
     /** El camino feliz completo: usuario, catálogo, franja ofrecida y consultorio. */
     private void todoEnOrden() {
-        lenient().when(usuarioRepository.findById(usuarioId)).thenReturn(Optional.of(usuario));
+        lenient().when(autorDeLaReserva.resolver(null))
+                .thenReturn(new AutorDeLaReserva.Reserva(ficha.getId(), usuarioId));
         lenient().when(tratamientoRepository.findWithEspecialidadById(tratamientoId))
                 .thenReturn(Optional.of(tratamiento));
         lenient().when(odontologoRepository.findConEspecialidadesById(odontologoId))
@@ -159,7 +131,7 @@ class CitaServiceTest {
                 .thenReturn(List.of(consultorioId));
         lenient().when(consultorioRepository.findById(consultorioId)).thenReturn(Optional.of(consultorio));
         lenient().when(bloqueoDeFranja.tomar(any(), any())).thenReturn(bloqueoTomado());
-        lenient().when(registroDeCita.crear(any(), any(), any(), any(), any(), any()))
+        lenient().when(registroDeCita.crear(any(), any(), any(), any(), any(), any(), any()))
                 .thenAnswer(inv -> citaCreada(inv.getArgument(3)));
     }
 
@@ -241,7 +213,8 @@ class CitaServiceTest {
         verify(registroDeCita).crear(eq(ficha.getId()), eq(odontologoId), eq(tratamientoId),
                 eq(consultorioId),
                 eq(inicioEsperado.toOffsetDateTime()),
-                eq(inicioEsperado.plusMinutes(30).toOffsetDateTime()));
+                eq(inicioEsperado.plusMinutes(30).toOffsetDateTime()),
+                eq(usuarioId));
     }
 
     @Test
@@ -272,7 +245,7 @@ class CitaServiceTest {
                 () -> citaService.reservar(ahora));
 
         assertTrue(ex.getMessage().contains("2 horas"));
-        verify(registroDeCita, never()).crear(any(), any(), any(), any(), any(), any());
+        verify(registroDeCita, never()).crear(any(), any(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -287,7 +260,7 @@ class CitaServiceTest {
                 () -> citaService.reservar(lejana));
 
         assertTrue(ex.getMessage().contains("90 días"));
-        verify(registroDeCita, never()).crear(any(), any(), any(), any(), any(), any());
+        verify(registroDeCita, never()).crear(any(), any(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -319,7 +292,7 @@ class CitaServiceTest {
                 () -> citaService.reservar(peticion()));
 
         assertTrue(ex.getMessage().contains("máximo permitido"));
-        verify(registroDeCita, never()).crear(any(), any(), any(), any(), any(), any());
+        verify(registroDeCita, never()).crear(any(), any(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -359,7 +332,7 @@ class CitaServiceTest {
                 () -> citaService.reservar(peticion()));
 
         assertTrue(ex.getMessage().contains("ya no está disponible"));
-        verify(registroDeCita, never()).crear(any(), any(), any(), any(), any(), any());
+        verify(registroDeCita, never()).crear(any(), any(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -369,7 +342,7 @@ class CitaServiceTest {
 
         assertThrows(IllegalStateException.class, () -> citaService.reservar(peticion()));
 
-        verify(registroDeCita, never()).crear(any(), any(), any(), any(), any(), any());
+        verify(registroDeCita, never()).crear(any(), any(), any(), any(), any(), any(), any());
     }
 
     // ------------------------------------------------------------------
@@ -401,50 +374,39 @@ class CitaServiceTest {
     }
 
     // ------------------------------------------------------------------
-    // RNF-04 · quién puede reservar
+    // HU-14 · quién la creó
     // ------------------------------------------------------------------
 
     @Test
-    void reservar_comoRecepcionista_lanzaForbidden() {
-        // Reservar en nombre de otro es HU-14; el servicio no se fía de que
-        // SecurityConfig ya lo corte.
-        autenticar(usuarioId.toString(), "SCOPE_RECEPCIONISTA");
+    void reservar_guardaAlAutorQueResolvioElColaborador() {
+        // RF-17: «quedará registrado quién la creó». Quién es lo decide
+        // AutorDeLaReserva; lo que aquí se fija es que el servicio lo traslade al
+        // INSERT en vez de volver a deducirlo de la ficha.
+        todoEnOrden();
+        UUID recepcionista = UUID.randomUUID();
+        UUID fichaAjena = UUID.randomUUID();
+        when(autorDeLaReserva.resolver(null))
+                .thenReturn(new AutorDeLaReserva.Reserva(fichaAjena, recepcionista));
+        when(citaRepository.countActivasDeFicha(fichaAjena)).thenReturn(0L);
 
-        ResponseStatusException ex = assertThrows(ResponseStatusException.class,
-                () -> citaService.reservar(peticion()));
+        citaService.reservar(peticion());
 
-        assertEquals(HttpStatus.FORBIDDEN.value(), ex.getStatusCode().value());
+        verify(registroDeCita).crear(eq(fichaAjena), any(), any(), any(), any(), any(),
+                eq(recepcionista));
     }
 
     @Test
-    void reservar_conCuentaSinFicha_lanzaForbidden() {
-        usuario.setFicha(null);
-        when(usuarioRepository.findById(usuarioId)).thenReturn(Optional.of(usuario));
+    void reservar_lacuotaDeRN07_seCuentaSobreLaFichaReservadaYNoSobreQuienReserva() {
+        // Recepción reserva para otro: la cuota que importa es la del paciente.
+        todoEnOrden();
+        UUID fichaAjena = UUID.randomUUID();
+        when(autorDeLaReserva.resolver(null))
+                .thenReturn(new AutorDeLaReserva.Reserva(fichaAjena, UUID.randomUUID()));
+        when(citaRepository.countActivasDeFicha(fichaAjena)).thenReturn(3L);
 
-        ResponseStatusException ex = assertThrows(ResponseStatusException.class,
-                () -> citaService.reservar(peticion()));
+        assertThrows(IllegalStateException.class, () -> citaService.reservar(peticion()));
 
-        assertEquals(HttpStatus.FORBIDDEN.value(), ex.getStatusCode().value());
-    }
-
-    @Test
-    void reservar_sinAutenticacion_lanzaUnauthorized() {
-        SecurityContextHolder.clearContext();
-
-        ResponseStatusException ex = assertThrows(ResponseStatusException.class,
-                () -> citaService.reservar(peticion()));
-
-        assertEquals(HttpStatus.UNAUTHORIZED.value(), ex.getStatusCode().value());
-    }
-
-    @Test
-    void reservar_conSubjectQueNoEsUuid_lanzaUnauthorized() {
-        autenticar("no-es-un-uuid", "SCOPE_PACIENTE");
-
-        ResponseStatusException ex = assertThrows(ResponseStatusException.class,
-                () -> citaService.reservar(peticion()));
-
-        assertEquals(HttpStatus.UNAUTHORIZED.value(), ex.getStatusCode().value());
+        verify(citaRepository).countActivasDeFicha(fichaAjena);
     }
 
     // ------------------------------------------------------------------
@@ -462,7 +424,7 @@ class CitaServiceTest {
                 () -> citaService.reservar(peticion()));
 
         assertTrue(ex.getMessage().contains("Otro paciente está reservando"));
-        verify(registroDeCita, never()).crear(any(), any(), any(), any(), any(), any());
+        verify(registroDeCita, never()).crear(any(), any(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -486,19 +448,19 @@ class CitaServiceTest {
         when(disponibilidadService.consultoriosLibres(any(), any()))
                 .thenReturn(List.of(consultorioId, segundo));
         when(consultorioRepository.findById(segundo)).thenReturn(Optional.of(otro));
-        when(registroDeCita.crear(any(), any(), any(), eq(consultorioId), any(), any()))
+        when(registroDeCita.crear(any(), any(), any(), eq(consultorioId), any(), any(), any()))
                 .thenThrow(solapeDe(ConflictoDeSolape.SOLAPE_CONSULTORIO));
 
         CitaResponseDTO respuesta = citaService.reservar(peticion());
 
         assertEquals("CIT-000123", respuesta.getCodigo());
-        verify(registroDeCita).crear(any(), any(), any(), eq(segundo), any(), any());
+        verify(registroDeCita).crear(any(), any(), any(), eq(segundo), any(), any(), any());
     }
 
     @Test
     void reservar_siTodosLosConsultoriosSeOcupan_lanzaIllegalState() {
         todoEnOrden();
-        when(registroDeCita.crear(any(), any(), any(), any(), any(), any()))
+        when(registroDeCita.crear(any(), any(), any(), any(), any(), any(), any()))
                 .thenThrow(solapeDe(ConflictoDeSolape.SOLAPE_CONSULTORIO));
 
         IllegalStateException ex = assertThrows(IllegalStateException.class,
@@ -514,14 +476,14 @@ class CitaServiceTest {
         // uno con «deadlock detected». Es una carrera perdida, no una petición
         // inválida: quien la pierde tiene que acabar con su 201 si aún hay sitio.
         todoEnOrden();
-        when(registroDeCita.crear(any(), any(), any(), eq(consultorioId), any(), any()))
+        when(registroDeCita.crear(any(), any(), any(), eq(consultorioId), any(), any(), any()))
                 .thenThrow(interbloqueo())
                 .thenAnswer(inv -> citaCreada(inv.getArgument(3)));
 
         CitaResponseDTO respuesta = citaService.reservar(peticion());
 
         assertEquals("CIT-000123", respuesta.getCodigo());
-        verify(registroDeCita, times(2)).crear(any(), any(), any(), eq(consultorioId), any(), any());
+        verify(registroDeCita, times(2)).crear(any(), any(), any(), eq(consultorioId), any(), any(), any());
     }
 
     @Test
@@ -533,14 +495,14 @@ class CitaServiceTest {
         when(disponibilidadService.consultoriosLibres(any(), any()))
                 .thenReturn(List.of(consultorioId, segundo));
         when(consultorioRepository.findById(segundo)).thenReturn(Optional.of(otro));
-        when(registroDeCita.crear(any(), any(), any(), eq(consultorioId), any(), any()))
+        when(registroDeCita.crear(any(), any(), any(), eq(consultorioId), any(), any(), any()))
                 .thenThrow(interbloqueo());
 
         CitaResponseDTO respuesta = citaService.reservar(peticion());
 
         assertEquals("CIT-000123", respuesta.getCodigo());
-        verify(registroDeCita, times(2)).crear(any(), any(), any(), eq(consultorioId), any(), any());
-        verify(registroDeCita).crear(any(), any(), any(), eq(segundo), any(), any());
+        verify(registroDeCita, times(2)).crear(any(), any(), any(), eq(consultorioId), any(), any(), any());
+        verify(registroDeCita).crear(any(), any(), any(), eq(segundo), any(), any(), any());
     }
 
     @Test
@@ -548,7 +510,7 @@ class CitaServiceTest {
         // El criterio 2 de HU-10 exige un 409 para quien no cabe, nunca un 500:
         // el interbloqueo no puede escaparse sin traducir.
         todoEnOrden();
-        when(registroDeCita.crear(any(), any(), any(), any(), any(), any()))
+        when(registroDeCita.crear(any(), any(), any(), any(), any(), any(), any()))
                 .thenThrow(interbloqueo());
 
         IllegalStateException ex = assertThrows(IllegalStateException.class,
@@ -565,7 +527,7 @@ class CitaServiceTest {
         UUID segundo = UUID.randomUUID();
         when(disponibilidadService.consultoriosLibres(any(), any()))
                 .thenReturn(List.of(consultorioId, segundo));
-        when(registroDeCita.crear(any(), any(), any(), any(), any(), any()))
+        when(registroDeCita.crear(any(), any(), any(), any(), any(), any(), any()))
                 .thenThrow(solapeDe(ConflictoDeSolape.SOLAPE_ODONTOLOGO));
 
         IllegalStateException ex = assertThrows(IllegalStateException.class,
@@ -573,14 +535,14 @@ class CitaServiceTest {
 
         assertTrue(ex.getMessage().contains("odontólogo acaba de ocuparse"));
         // Un solo intento: no se probó el segundo consultorio.
-        verify(registroDeCita).crear(any(), any(), any(), any(), any(), any());
+        verify(registroDeCita).crear(any(), any(), any(), any(), any(), any(), any());
     }
 
     @Test
     void reservar_conUnFalloDeIntegridadDesconocido_loPropaga() {
         // No es un solape nuestro: no hay que disfrazarlo de conflicto de agenda.
         todoEnOrden();
-        when(registroDeCita.crear(any(), any(), any(), any(), any(), any()))
+        when(registroDeCita.crear(any(), any(), any(), any(), any(), any(), any()))
                 .thenThrow(new DataIntegrityViolationException("codigo duplicado"));
 
         assertThrows(DataIntegrityViolationException.class, () -> citaService.reservar(peticion()));
@@ -590,7 +552,7 @@ class CitaServiceTest {
     void reservar_liberaElBloqueoAunqueLaReservaFalle() {
         // Sin el finally, una franja quedaria bloqueada hasta que caducase el TTL.
         todoEnOrden();
-        when(registroDeCita.crear(any(), any(), any(), any(), any(), any()))
+        when(registroDeCita.crear(any(), any(), any(), any(), any(), any(), any()))
                 .thenThrow(solapeDe(ConflictoDeSolape.SOLAPE_ODONTOLOGO));
 
         assertThrows(IllegalStateException.class, () -> citaService.reservar(peticion()));

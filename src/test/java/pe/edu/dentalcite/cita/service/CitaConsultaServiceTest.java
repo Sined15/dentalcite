@@ -23,6 +23,7 @@ import pe.edu.dentalcite.ficha.domain.Ficha;
 import pe.edu.dentalcite.odontologo.domain.Odontologo;
 import pe.edu.dentalcite.tratamiento.domain.Tratamiento;
 import pe.edu.dentalcite.usuario.domain.Usuario;
+import pe.edu.dentalcite.usuario.repository.UsuarioRepository;
 
 import java.time.LocalDate;
 import java.time.LocalTime;
@@ -55,12 +56,14 @@ class CitaConsultaServiceTest {
 
     @Mock private CitaRepository citaRepository;
     @Mock private CitaHistorialRepository historialRepository;
+    @Mock private UsuarioRepository usuarioRepository;
 
     private CitaConsultaService servicio;
 
     @BeforeEach
     void inicializar() {
-        servicio = new CitaConsultaService(citaRepository, historialRepository, "America/Lima");
+        servicio = new CitaConsultaService(citaRepository, historialRepository, usuarioRepository,
+                new VentanaDeCancelacion(24, new ReglasDeReserva(2, 90, 3)), "America/Lima");
     }
 
     private static OffsetDateTime instante(LocalDate dia, int hora, int minuto) {
@@ -90,7 +93,7 @@ class CitaConsultaServiceTest {
     }
 
     private void devolver(Cita... citas) {
-        when(citaRepository.buscar(any(), any(), any(), any(), any()))
+        when(citaRepository.buscar(any(), any(), any(), any(), any(), any()))
                 .thenReturn(new PageImpl<>(List.of(citas)));
     }
 
@@ -102,7 +105,7 @@ class CitaConsultaServiceTest {
 
         ArgumentCaptor<OffsetDateTime> desde = ArgumentCaptor.forClass(OffsetDateTime.class);
         ArgumentCaptor<OffsetDateTime> hasta = ArgumentCaptor.forClass(OffsetDateTime.class);
-        verify(citaRepository).buscar(desde.capture(), hasta.capture(), isNull(), isNull(), any());
+        verify(citaRepository).buscar(desde.capture(), hasta.capture(), isNull(), isNull(), isNull(), any());
 
         // Pedir «el 12 al 12» tiene que incluir la cita de las 19:00 de ese dia:
         // el extremo superior se abre al dia siguiente, no al inicio del mismo.
@@ -132,7 +135,7 @@ class CitaConsultaServiceTest {
         servicio.consultar(LUNES, LUNES, odontologoId, "cancelada", Pageable.unpaged());
 
         // El estado llega en minusculas desde la query string y se normaliza.
-        verify(citaRepository).buscar(any(), any(), eq(odontologoId), eq("CANCELADA"), any());
+        verify(citaRepository).buscar(any(), any(), isNull(), eq(odontologoId), eq("CANCELADA"), any());
     }
 
     @Test
@@ -150,7 +153,7 @@ class CitaConsultaServiceTest {
 
         servicio.consultar(LUNES, LUNES, null, "  ", Pageable.unpaged());
 
-        verify(citaRepository).buscar(any(), any(), isNull(), isNull(), any());
+        verify(citaRepository).buscar(any(), any(), isNull(), isNull(), isNull(), any());
     }
 
     @Test
@@ -215,7 +218,7 @@ class CitaConsultaServiceTest {
 
         servicio.consultar(LUNES, LUNES, null, null, porHora);
 
-        verify(citaRepository).buscar(any(), any(), isNull(), isNull(), eq(porHora));
+        verify(citaRepository).buscar(any(), any(), isNull(), isNull(), isNull(), eq(porHora));
     }
 
     @Test
