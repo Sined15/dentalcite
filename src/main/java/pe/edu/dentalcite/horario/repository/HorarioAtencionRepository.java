@@ -6,6 +6,7 @@ import org.springframework.data.repository.query.Param;
 import pe.edu.dentalcite.horario.domain.HorarioAtencion;
 
 import java.time.LocalTime;
+import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
 
@@ -20,4 +21,11 @@ public interface HorarioAtencionRepository extends JpaRepository<HorarioAtencion
                                                   @Param("horaInicio") LocalTime horaInicio, 
                                                   @Param("horaFin") LocalTime horaFin,
                                                   @Param("id") UUID id);
+
+    /**
+     * Horario de varios odontólogos en una sola consulta. El motor de
+     * disponibilidad (HU-08) recorre hasta catorce días de cinco agendas: pedirlo
+     * odontólogo a odontólogo sería el N+1 que RNF-01 no tolera.
+     */
+    List<HorarioAtencion> findByOdontologoIdIn(Collection<UUID> odontologoIds);
 }

@@ -13,6 +13,7 @@ import pe.edu.dentalcite.horario.repository.HorarioAtencionRepository;
 import pe.edu.dentalcite.odontologo.repository.OdontologoRepository;
 import pe.edu.dentalcite.usuario.repository.UsuarioRepository;
 import pe.edu.dentalcite.common.exception.ResourceNotFoundException;
+import pe.edu.dentalcite.disponibilidad.service.FranjasCache;
 
 import java.util.List;
 import java.util.Set;
@@ -25,6 +26,12 @@ public class HorarioService {
     private final HorarioAtencionRepository horarioRepository;
     private final OdontologoRepository odontologoRepository;
     private final UsuarioRepository usuarioRepository;
+    /**
+     * Declarar, mover o retirar un tramo cambia lo que el motor de disponibilidad
+     * (HU-08) debe ofrecer. Sin esta invalidacion, la cache seguiria sirviendo la
+     * agenda anterior hasta que caducase su TTL.
+     */
+    private final FranjasCache franjasCache;
 
     private static final Set<String> ROLES_ADMIN = Set.of("SCOPE_ADMINISTRADOR");
 
@@ -60,7 +67,9 @@ public class HorarioService {
         }
 
         horario.setOdontologo(odontologo);
-        return mapHorario(horarioRepository.save(horario));
+        HorarioResponseDTO creado = mapHorario(horarioRepository.save(horario));
+        franjasCache.invalidarTrasCommit();
+        return creado;
     }
 
     private void verificarPertenece(HorarioAtencion horario, UUID odontologoId) {
@@ -78,6 +87,7 @@ public class HorarioService {
         verificarPertenece(horario, odontologoId);
         verificarPropiedadOdontologo(horario.getOdontologo());
         horarioRepository.deleteById(id);
+        franjasCache.invalidarTrasCommit();
     }
 
     @Transactional
@@ -101,7 +111,9 @@ public class HorarioService {
         horario.setHoraInicio(detalles.getHoraInicio());
         horario.setHoraFin(detalles.getHoraFin());
 
-        return mapHorario(horarioRepository.save(horario));
+        HorarioResponseDTO actualizado = mapHorario(horarioRepository.save(horario));
+        franjasCache.invalidarTrasCommit();
+        return actualizado;
     }
 
     /**

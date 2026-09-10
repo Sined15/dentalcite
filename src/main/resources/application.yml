@@ -51,6 +51,33 @@ logging:
     # Ocultar log innecesario de JTA Platform de Hibernate
     "[org.hibernate.engine.transaction.jta.platform.internal.JtaPlatformInitiator]": ERROR
 
+# Configuración funcional de la clínica
+app:
+  # Los horarios de atención se declaran como hora local (LocalTime) y las citas y
+  # los bloqueos se guardan en UTC (TIMESTAMPTZ). El motor de disponibilidad
+  # (HU-08) tiene que comparar unos con otros, y sin una zona de clínica declarada
+  # esa comparación no está definida. Perú no aplica horario de verano.
+  zona-horaria: ${APP_ZONA_HORARIA:America/Lima}
+  # RN-17: los umbrales de RN-05 y RN-07 se declaran como configuración
+  # externa, ajustable sin recompilar. Antes eran constantes en el código, de
+  # modo que mover la antelación mínima obligaba a reconstruir el artefacto.
+  citas:
+    antelacion-minima-horas: ${APP_CITAS_ANTELACION_MINIMA_HORAS:2}
+    horizonte-maximo-dias: ${APP_CITAS_HORIZONTE_MAXIMO_DIAS:90}
+    maximo-activas-por-paciente: ${APP_CITAS_MAXIMO_ACTIVAS:3}
+    # HU-10: cuánto vive el bloqueo distribuido de una franja. Corto a propósito,
+    # para que un proceso que muera con el bloqueo tomado no deje la franja
+    # irreservable más que unos segundos. Se declara aquí, y no solo como valor
+    # por defecto en el código, porque es el mismo tipo de palanca de despliegue
+    # que el resto de umbrales de RN-17.
+    bloqueo-ttl-segundos: ${APP_CITAS_BLOQUEO_TTL:10}
+  disponibilidad:
+    # RNF-01 fija su umbral sobre catorce días. Es configuración y no una constante
+    # porque la contingencia del riesgo R-01 consiste exactamente en bajarlo a
+    # siete: un cambio de despliegue, no de código.
+    dias-maximos: ${APP_DISPONIBILIDAD_DIAS_MAXIMOS:14}
+    cache-ttl-segundos: ${APP_DISPONIBILIDAD_CACHE_TTL:60}
+
 # Configuración de OpenAPI (Swagger)
 springdoc:
   swagger-ui:

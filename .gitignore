@@ -6,7 +6,6 @@ target/
 
 /.agents
 /.claude
-/docs
 CLAUDE.md
 
 ### STS ###

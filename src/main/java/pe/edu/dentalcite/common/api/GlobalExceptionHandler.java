@@ -14,6 +14,7 @@ import org.springframework.web.server.ResponseStatusException;
 import pe.edu.dentalcite.bloqueo.api.dto.BloqueoConflictoResponse;
 import pe.edu.dentalcite.bloqueo.service.CitasActivasEnRangoException;
 import pe.edu.dentalcite.common.api.dto.MessageResponse;
+import pe.edu.dentalcite.common.exception.ReglaIncumplidaException;
 import pe.edu.dentalcite.common.exception.ResourceNotFoundException;
 
 import java.util.HashMap;
@@ -43,6 +44,16 @@ public class GlobalExceptionHandler {
     public ResponseEntity<BloqueoConflictoResponse> handleCitasActivasEnRango(CitasActivasEnRangoException ex) {
         return ResponseEntity.status(HttpStatus.CONFLICT)
                 .body(new BloqueoConflictoResponse(ex.getMessage(), ex.getCitasActivas()));
+    }
+
+    /**
+     * HU-09 / RN-05: la franja se pide fuera de la ventana reservable. No es un
+     * 400 —la peticion esta bien formada— ni un 409 —no choca con ningun otro
+     * recurso—: es una regla de negocio incumplida, que es lo que el 422 nombra.
+     */
+    @ExceptionHandler(ReglaIncumplidaException.class)
+    public ResponseEntity<MessageResponse> handleReglaIncumplida(ReglaIncumplidaException ex) {
+        return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(new MessageResponse(ex.getMessage()));
     }
 
     @ExceptionHandler(IllegalStateException.class)

@@ -22,4 +22,12 @@ public interface TratamientoRepository extends JpaRepository<Tratamiento, UUID> 
     boolean hasCitasActivas(@Param("id") UUID id);
 
     boolean existsByEspecialidadIdAndActivoTrue(UUID especialidadId);
+
+    /**
+     * El motor de disponibilidad (HU-08) necesita la especialidad exigida por el
+     * tratamiento para aplicar RN-08, y la resuelve fuera de toda transacción de
+     * escritura: sin el grafo, el proxy LAZY estallaría al leerla.
+     */
+    @EntityGraph(attributePaths = {"especialidad"})
+    Optional<Tratamiento> findWithEspecialidadById(UUID id);
 }

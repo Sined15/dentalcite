@@ -64,7 +64,7 @@ class ContratoOpenApiIntegrationTest {
     }
 
     @Test
-    void todosLosEndpointsDelSprint1EstanPublicados() throws Exception {
+    void todosLosEndpointsPublicadosEstanEnElContrato() throws Exception {
         JsonNode paths = contrato().path("paths");
 
         for (String ruta : Arrays.asList(
@@ -77,7 +77,12 @@ class ContratoOpenApiIntegrationTest {
                 "/api/v1/odontologos/{odontologoId}/horarios",
                 "/api/v1/odontologos/{odontologoId}/horarios/{horarioId}",
                 "/api/v1/bloqueos", "/api/v1/bloqueos/{id}",
-                "/api/v1/consultorios")) {
+                "/api/v1/consultorios",
+                // Sprint 2
+                "/api/v1/disponibilidad",
+                "/api/v1/citas",
+                "/api/v1/citas/{id}/cancelar",
+                "/api/v1/citas/{id}/historial")) {
             assertTrue(paths.has(ruta), "falta en el contrato la ruta " + ruta);
         }
     }

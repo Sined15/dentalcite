@@ -17,10 +17,17 @@ import java.time.OffsetDateTime;
 import java.util.UUID;
 
 /**
- * Cita de la agenda. En el Sprint 1 solo se lee: las reglas RN-12 (no dar de baja
- * un odontólogo o tratamiento con citas activas) y RN-03 (no aplicar un bloqueo
- * que alcance citas activas) la consultan. La reserva y la máquina de estados
- * completas son del Sprint 2 (HU-09 a HU-11).
+ * Cita de la agenda.
+ *
+ * <p>RN-09 define su máquina de estados: nace CONFIRMADA (HU-09) y transita a uno
+ * de tres estados finales, sin retorno. Hoy están construidas la reserva y la
+ * cancelación (HU-11); ATENDIDA y NO_ASISTIO llegan con HU-16. Cada transición se
+ * registra en {@link CitaHistorial} (RF-21), y ninguna borra la fila: la baja de
+ * la cita es su estado CANCELADA (RN-12).
+ *
+ * <p>Se llama <strong>activa</strong> a la confirmada cuya hora de fin no ha
+ * pasado. Es la única que ocupa odontólogo y consultorio, la única que cuentan
+ * RN-01, RN-02 y RN-07, y la única que ve el motor de disponibilidad.
  */
 @Entity
 @Table(name = "citas")
@@ -33,6 +40,13 @@ public class Cita {
 
     /** RN-09: la cita nace confirmada y transita a uno de tres estados finales. */
     public static final String ESTADO_CONFIRMADA = "CONFIRMADA";
+
+    /**
+     * Estado final tras una cancelación (HU-11, HU-15). Libera la franja en el
+     * acto: las restricciones de exclusión de {@code V13} son parciales sobre
+     * CONFIRMADA, así que dejan de aplicar en cuanto el estado cambia.
+     */
+    public static final String ESTADO_CANCELADA = "CANCELADA";
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)

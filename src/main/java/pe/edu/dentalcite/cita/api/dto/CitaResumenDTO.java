@@ -1,0 +1,60 @@
+package pe.edu.dentalcite.cita.api.dto;
+
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+import java.time.LocalDate;
+import java.time.LocalTime;
+import java.util.UUID;
+
+/**
+ * Una fila de la agenda (HU-11 · RF-18): «cada una con su paciente, su hora y su
+ * consultorio».
+ *
+ * <p>No reutiliza {@link CitaResponseDTO} porque las dos vistas responden a
+ * preguntas distintas: aquella es el comprobante que ve el paciente al reservar
+ * —y por eso no lleva paciente, que es él mismo—, y esta es la lista que ve
+ * recepción, donde el paciente es la primera columna. Fundirlas dejaría un campo
+ * nulo en cada uso.
+ *
+ * <p>{@code fecha} y {@code hora} van en hora local de la clínica, la misma que
+ * {@code zonaHoraria} declara, y no como el instante UTC que guarda la base.
+ */
+@Data
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
+public class CitaResumenDTO {
+
+    private UUID id;
+    private String codigo;
+    private LocalDate fecha;
+    private LocalTime hora;
+    private Integer duracionMinutos;
+    private String zonaHoraria;
+    /** RN-09: CONFIRMADA, ATENDIDA, NO_ASISTIO o CANCELADA. */
+    private String estado;
+    /** Solo presente en las canceladas (RF-20). */
+    private String motivoCancelacion;
+
+    private Paciente paciente;
+    private CitaResponseDTO.Referencia odontologo;
+    private CitaResponseDTO.Referencia tratamiento;
+    private CitaResponseDTO.Referencia consultorio;
+
+    /**
+     * El paciente con su número de historia: recepción identifica por historia
+     * clínica, no por el identificador interno de la ficha.
+     */
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class Paciente {
+        private UUID fichaId;
+        private String nombre;
+        private String numeroHistoria;
+    }
+}

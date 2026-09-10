@@ -88,6 +88,12 @@ class EntornoReproducibleIntegrationTest {
         assertTrue(contar("consultorios") >= 3, "el caso simulado tiene tres consultorios");
         assertTrue(contar("feriados") >= 1, "faltan feriados sembrados");
         assertTrue(contar("recomendaciones") >= 1, "falta el catálogo cerrado de recomendaciones");
+        // V15 añade lo que faltaba para que la agenda exista de arranque: sin
+        // tratamientos el motor de disponibilidad no puede ni invocarse, y sin
+        // horario declarado no propone ninguna franja. Demostrar el Sprint 2
+        // exigía entonces darlos de alta a mano, contra RNF-11.
+        assertTrue(contar("tratamientos") >= 1, "faltan tratamientos sembrados");
+        assertTrue(contar("horarios_atencion") >= 1, "ningún odontólogo tiene horario declarado");
     }
 
     @Test

@@ -90,6 +90,25 @@ public class SecurityConfig {
                 .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/v1/usuarios/me").authenticated()
                 .requestMatchers("/api/v1/odontologos/*/horarios/**").hasAnyAuthority("SCOPE_ODONTOLOGO", "SCOPE_ADMINISTRADOR")
                 .requestMatchers("/api/v1/bloqueos/**").hasAnyAuthority("SCOPE_ODONTOLOGO", "SCOPE_RECEPCIONISTA", "SCOPE_ADMINISTRADOR")
+                // HU-08: la disponibilidad la consulta cualquier rol autenticado, el
+                // paciente incluido. Caeria igualmente en el anyRequest() del final,
+                // pero RNF-04 se audita leyendo este metodo: una ruta que no aparece
+                // aqui obliga a deducir su permiso en vez de leerlo.
+                .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/v1/disponibilidad").authenticated()
+                // HU-09: solo el PACIENTE reserva, y solo para si mismo. HU-14
+                // ampliara esta regla a RECEPCIONISTA y ADMINISTRADOR cuando
+                // exista la reserva en nombre de terceros.
+                .requestMatchers(org.springframework.http.HttpMethod.POST, "/api/v1/citas").hasAuthority("SCOPE_PACIENTE")
+                // HU-11: la agenda de la clinica, su bitacora y la cancelacion sin
+                // ventana son de recepcion y administracion. La regla comodin va al
+                // final y es deliberada: sin ella, cualquier ruta nueva bajo
+                // /api/v1/citas caeria en el anyRequest() del final, que solo exige
+                // estar autenticado, y quedaria abierta a los cuatro roles. Que el
+                // paciente consulte y cancele *lo suyo* es HU-15, y necesitara sus
+                // propias rutas o una comprobacion de propiedad en el servicio.
+                .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/v1/citas").hasAnyAuthority("SCOPE_RECEPCIONISTA", "SCOPE_ADMINISTRADOR")
+                .requestMatchers(org.springframework.http.HttpMethod.PATCH, "/api/v1/citas/*/cancelar").hasAnyAuthority("SCOPE_RECEPCIONISTA", "SCOPE_ADMINISTRADOR")
+                .requestMatchers("/api/v1/citas/**").hasAnyAuthority("SCOPE_RECEPCIONISTA", "SCOPE_ADMINISTRADOR")
                 // Catálogo clínico (Tabla 10): lectura para todo rol autenticado,
                 // escritura solo ADMINISTRADOR. La segunda regla no enumera métodos a
                 // propósito: enumerarlos dejaba PUT y DELETE cayendo en el

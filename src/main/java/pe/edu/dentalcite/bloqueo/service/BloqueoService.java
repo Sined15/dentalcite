@@ -16,6 +16,7 @@ import pe.edu.dentalcite.consultorio.repository.ConsultorioRepository;
 import pe.edu.dentalcite.odontologo.repository.OdontologoRepository;
 import pe.edu.dentalcite.usuario.repository.UsuarioRepository;
 import pe.edu.dentalcite.common.exception.ResourceNotFoundException;
+import pe.edu.dentalcite.disponibilidad.service.FranjasCache;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
@@ -38,6 +39,12 @@ public class BloqueoService {
     private final ConsultorioRepository consultorioRepository;
     private final UsuarioRepository usuarioRepository;
     private final CitaRepository citaRepository;
+    /**
+     * Aplicar o levantar un bloqueo cambia lo que el motor de disponibilidad
+     * (HU-08) debe ofrecer, y levantarlo debe devolver la franja a la oferta sin
+     * esperar a que caduque la cache.
+     */
+    private final FranjasCache franjasCache;
 
     private static final Set<String> ROLES_ADMIN_O_RECEPCION = Set.of("SCOPE_ADMINISTRADOR", "SCOPE_RECEPCIONISTA");
 
@@ -203,7 +210,9 @@ public class BloqueoService {
         verificarPuedeBloquearConsultorio(bloqueo.getConsultorio());
         verificarSinCitasActivas(bloqueo);
 
-        return mapBloqueo(bloqueoRepository.save(bloqueo));
+        BloqueoResponseDTO creado = mapBloqueo(bloqueoRepository.save(bloqueo));
+        franjasCache.invalidarTrasCommit();
+        return creado;
     }
 
     @Transactional
@@ -215,6 +224,7 @@ public class BloqueoService {
         // clínica: es la misma decisión que aplicarlo, y pide el mismo permiso.
         verificarPuedeBloquearConsultorio(bloqueo.getConsultorio());
         bloqueoRepository.deleteById(id);
+        franjasCache.invalidarTrasCommit();
     }
 
     @Transactional
@@ -261,6 +271,8 @@ public class BloqueoService {
 
         verificarSinCitasActivas(bloqueo);
 
-        return mapBloqueo(bloqueoRepository.save(bloqueo));
+        BloqueoResponseDTO actualizado = mapBloqueo(bloqueoRepository.save(bloqueo));
+        franjasCache.invalidarTrasCommit();
+        return actualizado;
     }
 }

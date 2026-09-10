@@ -42,6 +42,11 @@ public class HorarioServiceTest {
     @Mock
     private UsuarioRepository usuarioRepository;
 
+    // HU-08: el servicio invalida la cache de franjas al tocar la agenda. Se
+    // simula para que estas pruebas sigan siendo del servicio y no de Redis.
+    @Mock
+    private pe.edu.dentalcite.disponibilidad.service.FranjasCache franjasCache;
+
     @InjectMocks
     private HorarioService horarioService;
 

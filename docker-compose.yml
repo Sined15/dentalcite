@@ -30,6 +30,16 @@ services:
       JWT_SECRET: ${JWT_SECRET:-clave-de-desarrollo-local-cambiar-en-despliegue-000}
       # Origenes del cliente autorizados a consumir la API desde el navegador.
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:4200}
+      # RN-17: los umbrales de negocio se ajustan aqui, sin recompilar.
+      APP_ZONA_HORARIA: ${APP_ZONA_HORARIA:-America/Lima}
+      APP_CITAS_ANTELACION_MINIMA_HORAS: ${APP_CITAS_ANTELACION_MINIMA_HORAS:-2}
+      APP_CITAS_HORIZONTE_MAXIMO_DIAS: ${APP_CITAS_HORIZONTE_MAXIMO_DIAS:-90}
+      APP_CITAS_MAXIMO_ACTIVAS: ${APP_CITAS_MAXIMO_ACTIVAS:-3}
+      # HU-10: vida del bloqueo distribuido de franja en Redis.
+      APP_CITAS_BLOQUEO_TTL: ${APP_CITAS_BLOQUEO_TTL:-10}
+      # Palanca de la contingencia de R-01: bajar de 14 a 7 dias.
+      APP_DISPONIBILIDAD_DIAS_MAXIMOS: ${APP_DISPONIBILIDAD_DIAS_MAXIMOS:-14}
+      APP_DISPONIBILIDAD_CACHE_TTL: ${APP_DISPONIBILIDAD_CACHE_TTL:-60}
       TZ: UTC
 
   # Cliente Angular, OPCIONAL. HU-01 pide que este archivo levante la API,
