@@ -122,8 +122,12 @@ public class AuthService {
 
         nuevoUsuario = usuarioRepository.save(nuevoUsuario);
 
+        // La ficha va junto al usuario, no en su lugar: desde HU-12 el
+        // consentimiento se consulta por la persona, y una fila que solo apunte a
+        // la cuenta desaparecería de esa consulta.
         Consentimiento consentimiento = Consentimiento.builder()
                 .usuario(nuevoUsuario)
+                .ficha(ficha)
                 .versionTexto(request.getVersionConsentimiento())
                 .build();
 

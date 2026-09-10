@@ -109,6 +109,15 @@ public class SecurityConfig {
                 .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/v1/citas").hasAnyAuthority("SCOPE_RECEPCIONISTA", "SCOPE_ADMINISTRADOR")
                 .requestMatchers(org.springframework.http.HttpMethod.PATCH, "/api/v1/citas/*/cancelar").hasAnyAuthority("SCOPE_RECEPCIONISTA", "SCOPE_ADMINISTRADOR")
                 .requestMatchers("/api/v1/citas/**").hasAnyAuthority("SCOPE_RECEPCIONISTA", "SCOPE_ADMINISTRADOR")
+                // HU-12: el alta presencial es de recepcion y administracion. El
+                // comodin va detras por la misma razon que en citas: sin el,
+                // cualquier ruta nueva bajo /api/v1/pacientes caeria en el
+                // anyRequest() del final y quedaria abierta a los cuatro roles.
+                // HU-13 lo ampliara —el ODONTOLOGO vera solo a sus pacientes y el
+                // PACIENTE solo la propia ficha, en lectura—, y esa comprobacion de
+                // propiedad no cabe en una regla de ruta: ira en su servicio.
+                .requestMatchers(org.springframework.http.HttpMethod.POST, "/api/v1/pacientes").hasAnyAuthority("SCOPE_RECEPCIONISTA", "SCOPE_ADMINISTRADOR")
+                .requestMatchers("/api/v1/pacientes/**").hasAnyAuthority("SCOPE_RECEPCIONISTA", "SCOPE_ADMINISTRADOR")
                 // Catálogo clínico (Tabla 10): lectura para todo rol autenticado,
                 // escritura solo ADMINISTRADOR. La segunda regla no enumera métodos a
                 // propósito: enumerarlos dejaba PUT y DELETE cayendo en el
