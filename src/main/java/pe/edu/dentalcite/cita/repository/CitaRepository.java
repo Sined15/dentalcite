@@ -131,6 +131,40 @@ public interface CitaRepository extends JpaRepository<Cita, UUID> {
             Pageable pageable);
 
     /**
+     * RF-22, HU-16: las citas <strong>pendientes de cierre</strong>, es decir las
+     * confirmadas cuya hora de fin ya pasó y que siguen sin resultado.
+     *
+     * <p>RN-09 las define exactamente así, y es la definición complementaria a la
+     * de «activa» que usan las otras consultas: el mismo {@code CURRENT_TIMESTAMP}
+     * separa unas de otras, con la desigualdad al revés. No hace falta comprobar
+     * «sin resultado» aparte: registrar el resultado saca la cita de CONFIRMADA,
+     * de modo que estar confirmada <em>es</em> seguir sin él.
+     *
+     * <p>El filtro por ficha del odontólogo es opcional —{@code null} significa
+     * «todas»— y sirve al «(la propia)» del contrato: recepción y administración
+     * ven la clínica entera, el odontólogo solo lo suyo. Se pregunta por su ficha
+     * y no por su registro por lo mismo que en
+     * {@link #atendioAPorFichaDelOdontologo}: de una cuenta a su registro de
+     * odontólogo solo se llega por la ficha que RN-11 comparte entre ambos.
+     *
+     * <p>Se ordenan de la más antigua a la más reciente porque es una cola de
+     * trabajo: lo que lleva más tiempo sin cerrar es lo que primero hay que
+     * cerrar.
+     */
+    @EntityGraph(attributePaths = {"ficha", "odontologo", "tratamiento", "consultorio",
+            "creadoPor", "creadoPor.ficha"})
+    @Query("""
+            SELECT c FROM Cita c
+            WHERE c.estado = 'CONFIRMADA'
+              AND c.fin < CURRENT_TIMESTAMP
+              AND (:fichaDelOdontologoId IS NULL
+                   OR c.odontologo.ficha.id = :fichaDelOdontologoId)
+            ORDER BY c.inicio ASC
+            """)
+    Page<Cita> pendientesDeCierre(@Param("fichaDelOdontologoId") UUID fichaDelOdontologoId,
+            Pageable pageable);
+
+    /**
      * RF-08, HU-13: las citas de una ficha, pasadas y futuras, de la más reciente
      * a la más antigua.
      *

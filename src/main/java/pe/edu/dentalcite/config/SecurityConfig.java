@@ -117,6 +117,13 @@ public class SecurityConfig {
                 // RN-06. Que sea suya y que la ventana lo permita no son patrones
                 // de ruta: los decide CancelacionService, con la cita delante.
                 .requestMatchers(org.springframework.http.HttpMethod.PATCH, "/api/v1/citas/*/cancelar").hasAnyAuthority("SCOPE_PACIENTE", "SCOPE_RECEPCIONISTA", "SCOPE_ADMINISTRADOR")
+                // HU-16: el cierre de la cita suma al ODONTOLOGO, que el comodin de
+                // mas abajo dejaria fuera. Ambas van antes que el, como /mias.
+                // «(la propia)» no es un patron de ruta: que la cita sea de su
+                // registro lo comprueba CierreDeCita, y que la cola solo traiga las
+                // suyas, CitaConsultaService.
+                .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/v1/citas/pendientes-cierre").hasAnyAuthority("SCOPE_ODONTOLOGO", "SCOPE_RECEPCIONISTA", "SCOPE_ADMINISTRADOR")
+                .requestMatchers(org.springframework.http.HttpMethod.PATCH, "/api/v1/citas/*/resultado").hasAnyAuthority("SCOPE_ODONTOLOGO", "SCOPE_RECEPCIONISTA", "SCOPE_ADMINISTRADOR")
                 .requestMatchers("/api/v1/citas/**").hasAnyAuthority("SCOPE_RECEPCIONISTA", "SCOPE_ADMINISTRADOR")
                 // HU-12: el alta presencial es de recepcion y administracion.
                 .requestMatchers(org.springframework.http.HttpMethod.POST, "/api/v1/pacientes").hasAnyAuthority("SCOPE_RECEPCIONISTA", "SCOPE_ADMINISTRADOR")

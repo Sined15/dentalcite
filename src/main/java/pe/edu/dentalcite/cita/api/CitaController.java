@@ -27,7 +27,9 @@ import pe.edu.dentalcite.cita.api.dto.CitaHistorialDTO;
 import pe.edu.dentalcite.cita.api.dto.CitaRequestDTO;
 import pe.edu.dentalcite.cita.api.dto.CitaResponseDTO;
 import pe.edu.dentalcite.cita.api.dto.CitaResumenDTO;
+import pe.edu.dentalcite.cita.api.dto.ResultadoRequestDTO;
 import pe.edu.dentalcite.cita.service.CancelacionService;
+import pe.edu.dentalcite.cita.service.CierreDeCita;
 import pe.edu.dentalcite.cita.service.CitaConsultaService;
 import pe.edu.dentalcite.cita.service.CitaService;
 
@@ -35,7 +37,7 @@ import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 
-@Tag(name = "Citas", description = "M5 · Reserva desde el portal (HU-09, RF-15) y desde recepcion (HU-14, RF-17), agenda de recepcion (HU-11, RF-18) y citas del paciente (HU-15, RF-18, RF-19)")
+@Tag(name = "Citas", description = "M5 · Reserva desde el portal (HU-09, RF-15) y desde recepcion (HU-14, RF-17), agenda de recepcion (HU-11, RF-18), citas del paciente (HU-15, RF-18, RF-19) y cierre de la cita (HU-16, RF-22)")
 @RestController
 @RequestMapping("/api/v1/citas")
 @RequiredArgsConstructor
@@ -44,6 +46,7 @@ public class CitaController {
     private final CitaService citaService;
     private final CitaConsultaService citaConsultaService;
     private final CancelacionService cancelacionService;
+    private final CierreDeCita cierreDeCita;
 
     @Operation(summary = "Reservar una cita",
             description = "HU-09 · RF-15 · PACIENTE, para si mismo: su ficha sale del token y `pacienteId` esta"
@@ -145,6 +148,45 @@ public class CitaController {
     public CitaResponseDTO cancelar(@PathVariable UUID id,
             @Valid @RequestBody CancelacionRequestDTO peticion) {
         return cancelacionService.cancelar(id, peticion.getMotivo());
+    }
+
+    @Operation(summary = "Consultar las citas pendientes de cierre",
+            description = "HU-16 · RF-22 · RECEPCIONISTA, ADMINISTRADOR y ODONTOLOGO. Las citas CONFIRMADA cuya"
+                    + " hora de fin ya paso y siguen sin resultado (RN-09), de la mas antigua a la mas reciente:"
+                    + " es una cola de trabajo, y lo que lleva mas tiempo sin cerrar es lo primero que hay que"
+                    + " cerrar. El ODONTOLOGO ve solo las suyas; recepcion y administracion, las de toda la"
+                    + " clinica. No hace falta filtrar por «sin resultado» aparte: registrar el resultado saca la"
+                    + " cita de CONFIRMADA.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Pagina de citas pendientes de cierre"),
+            @ApiResponse(responseCode = "401", description = "Sin token o con token revocado"),
+            @ApiResponse(responseCode = "403", description = "El rol no puede cerrar citas, o la cuenta de odontologo no tiene ficha (RNF-04)")
+    })
+    @GetMapping("/pendientes-cierre")
+    public Page<CitaResumenDTO> pendientesDeCierre(
+            @PageableDefault(size = 20) Pageable pageable) {
+        return citaConsultaService.pendientesDeCierre(pageable);
+    }
+
+    @Operation(summary = "Registrar el resultado de una cita",
+            description = "HU-16 · RF-22 · RECEPCIONISTA, ADMINISTRADOR y ODONTOLOGO (la propia). La cita pasa a"
+                    + " ATENDIDA o NO_ASISTIO, sin retorno (RN-09), y la transicion queda en la bitacora con su"
+                    + " responsable y su marca temporal (RF-21). Solo se puede registrar cuando la hora de fin ya"
+                    + " ha pasado: las restricciones de exclusion de la base son parciales sobre CONFIRMADA, asi"
+                    + " que cerrar una cita que aun no ha terminado liberaria una franja que todavia se va a"
+                    + " ocupar. El PACIENTE no puede invocarla ni sobre la suya.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Resultado registrado"),
+            @ApiResponse(responseCode = "400", description = "Resultado ausente o distinto de ATENDIDA y NO_ASISTIO"),
+            @ApiResponse(responseCode = "401", description = "Sin token o con token revocado"),
+            @ApiResponse(responseCode = "403", description = "El rol no puede cerrar citas, o la cita es de otro odontologo (RNF-04)"),
+            @ApiResponse(responseCode = "404", description = "No existe una cita con ese identificador"),
+            @ApiResponse(responseCode = "409", description = "La cita ya esta en un estado final (RN-09), o todavia no ha terminado")
+    })
+    @PatchMapping("/{id}/resultado")
+    public CitaResponseDTO registrarResultado(@PathVariable UUID id,
+            @Valid @RequestBody ResultadoRequestDTO peticion) {
+        return cierreDeCita.registrarResultado(id, peticion.getResultado());
     }
 
     @Operation(summary = "Consultar la bitacora de una cita",

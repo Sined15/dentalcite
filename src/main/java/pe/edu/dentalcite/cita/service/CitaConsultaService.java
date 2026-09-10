@@ -31,7 +31,8 @@ import java.util.UUID;
 
 /**
  * Consulta de la agenda de la clínica (HU-11 · RF-18), de las citas del propio
- * paciente (HU-15 · RF-18) y de la bitácora de una cita (RF-21).
+ * paciente (HU-15 · RF-18), de las pendientes de cierre (HU-16 · RF-22) y de la
+ * bitácora de una cita (RF-21).
  *
  * <p>Vive aparte de {@link CitaService} a propósito: aquel no es
  * {@code @Transactional} porque el reintento de RF-16 necesita abrir una
@@ -143,6 +144,22 @@ public class CitaConsultaService {
                 .toList();
     }
 
+    /**
+     * RF-22, HU-16: «el listado de citas pendientes de cierre … las confirmadas
+     * cuya hora de fin ya pasó y siguen sin resultado».
+     *
+     * <p>Quién ve qué lo decide el rol y no un parámetro: recepción y
+     * administración ven la clínica entera y el odontólogo solo las suyas, que es
+     * el «(la propia)» del contrato. Como en «mis citas», la ficha se resuelve
+     * aquí dentro a partir del token; si fuera un argumento, un odontólogo podría
+     * pedir la cola de otro.
+     */
+    @Transactional(readOnly = true)
+    public Page<CitaResumenDTO> pendientesDeCierre(Pageable pageable) {
+        UUID fichaDelOdontologo = esOdontologoSinPrivilegios() ? fichaDelUsuarioAutenticado() : null;
+        return citaRepository.pendientesDeCierre(fichaDelOdontologo, pageable).map(this::resumen);
+    }
+
     /** RF-21: la bitácora completa de una cita, en orden cronológico. */
     @Transactional(readOnly = true)
     public List<CitaHistorialDTO> historial(UUID citaId) {
@@ -155,11 +172,35 @@ public class CitaConsultaService {
     }
 
     /**
-     * La ficha de quien pregunta. Falla cerrado: sin credenciales, sin cuenta o
-     * sin ficha no hay «mis citas» que devolver, y una lista vacía sería peor
-     * que un error porque parecería que no tiene ninguna.
+     * Si quien pregunta es un odontólogo y nada más. Recepción y administración
+     * no se filtran por ficha aunque tuvieran una: ven la clínica entera.
      */
+    private static boolean esOdontologoSinPrivilegios() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null || !auth.isAuthenticated()) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "No autenticado");
+        }
+        boolean privilegiado = auth.getAuthorities().stream()
+                .anyMatch(a -> "SCOPE_RECEPCIONISTA".equals(a.getAuthority())
+                        || "SCOPE_ADMINISTRADOR".equals(a.getAuthority()));
+        if (privilegiado) {
+            return false;
+        }
+        return auth.getAuthorities().stream()
+                .anyMatch(a -> "SCOPE_ODONTOLOGO".equals(a.getAuthority()));
+    }
+
+    /** Alias con nombre de dominio: en «mis citas» quien pregunta es el paciente. */
     private UUID fichaDelPacienteAutenticado() {
+        return fichaDelUsuarioAutenticado();
+    }
+
+    /**
+     * La ficha de quien pregunta. Falla cerrado: sin credenciales, sin cuenta o
+     * sin ficha no hay nada que devolver, y una lista vacía sería peor que un
+     * error porque parecería que no tiene ninguna cita.
+     */
+    private UUID fichaDelUsuarioAutenticado() {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
         if (auth == null || !auth.isAuthenticated()) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "No autenticado");

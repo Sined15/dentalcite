@@ -21,14 +21,16 @@ import java.util.UUID;
  * Cita de la agenda.
  *
  * <p>RN-09 define su máquina de estados: nace CONFIRMADA (HU-09) y transita a uno
- * de tres estados finales, sin retorno. Hoy están construidas la reserva y la
- * cancelación (HU-11); ATENDIDA y NO_ASISTIO llegan con HU-16. Cada transición se
- * registra en {@link CitaHistorial} (RF-21), y ninguna borra la fila: la baja de
- * la cita es su estado CANCELADA (RN-12).
+ * de tres estados finales, sin retorno —CANCELADA (HU-11, HU-15), ATENDIDA y
+ * NO_ASISTIO (HU-16)—. Cada transición se registra en {@link CitaHistorial}
+ * (RF-21), y ninguna borra la fila: la baja de la cita es su estado CANCELADA
+ * (RN-12).
  *
  * <p>Se llama <strong>activa</strong> a la confirmada cuya hora de fin no ha
  * pasado. Es la única que ocupa odontólogo y consultorio, la única que cuentan
- * RN-01, RN-02 y RN-07, y la única que ve el motor de disponibilidad.
+ * RN-01, RN-02 y RN-07, y la única que ve el motor de disponibilidad. La
+ * confirmada cuya hora de fin ya pasó queda <strong>pendiente de cierre</strong>,
+ * no consume cuota y es la que HU-16 lista para registrarle su resultado.
  */
 @Entity
 @Table(name = "citas")
@@ -48,6 +50,19 @@ public class Cita {
      * CONFIRMADA, así que dejan de aplicar en cuanto el estado cambia.
      */
     public static final String ESTADO_CANCELADA = "CANCELADA";
+
+    /**
+     * Estado final: el paciente vino y se le atendió (HU-16 · RF-22).
+     *
+     * <p>Igual que CANCELADA, sale de la restricción de exclusión parcial de
+     * {@code V13}. Ahí está la razón de que el resultado solo se pueda registrar
+     * cuando la hora de fin ya ha pasado: hacerlo antes liberaría una franja que
+     * todavía se va a ocupar, y otra reserva podría solaparla.
+     */
+    public static final String ESTADO_ATENDIDA = "ATENDIDA";
+
+    /** Estado final: el paciente no se presentó (HU-16 · RF-22). */
+    public static final String ESTADO_NO_ASISTIO = "NO_ASISTIO";
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
