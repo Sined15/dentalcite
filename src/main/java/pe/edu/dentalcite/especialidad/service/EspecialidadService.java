@@ -26,6 +26,22 @@ public class EspecialidadService {
         return especialidadRepository.findAll(pageable).map(EspecialidadMapper::toResponseDTO);
     }
 
+    /**
+     * El nombre se guarda tal como se escribe, solo recortado.
+     *
+     * <p>Antes se pasaba a mayúsculas, y desde la revisión v4 eso hacía daño de
+     * dos maneras. La primera es que el catálogo dejó de ser una tabla interna:
+     * el visitante lee estos nombres bajo cada imagen de la galería, y
+     * «ODONTOLOGÍA ESTÉTICA» no es como se presenta una clínica. La segunda es
+     * peor: {@code V20} y {@code V21} siembran y enlazan las especialidades
+     * <strong>por nombre</strong>, así que bastaba con abrir una en la consola de
+     * administración y guardarla para renombrarla y romper la semilla, y con ella
+     * el guardián de HU-01.
+     *
+     * <p>La unicidad no dependía de las mayúsculas: la resuelve
+     * {@code existsByNombreIgnoreCase}, que sigue igual. Dos especialidades que
+     * solo se distingan por la caja siguen siendo la misma.
+     */
     @Transactional
     public EspecialidadResponseDTO crearEspecialidad(EspecialidadRequestDTO request) {
         String nombre = request.getNombre().trim();
@@ -35,8 +51,9 @@ public class EspecialidadService {
 
         Especialidad especialidad = Especialidad.builder()
                 .id(UUID.randomUUID())
-                .nombre(nombre.toUpperCase())
+                .nombre(nombre)
                 .descripcion(request.getDescripcion())
+                .imagenUrl(request.getImagenUrl())
                 .activo(true)
                 .build();
 
@@ -52,7 +69,7 @@ public class EspecialidadService {
         Especialidad especialidad = especialidadRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Especialidad no encontrada."));
 
-        String nombre = request.getNombre().trim().toUpperCase();
+        String nombre = request.getNombre().trim();
         if (!nombre.equalsIgnoreCase(especialidad.getNombre())
                 && especialidadRepository.existsByNombreIgnoreCase(nombre)) {
             throw new IllegalStateException("La especialidad ya existe.");
@@ -60,6 +77,7 @@ public class EspecialidadService {
 
         especialidad.setNombre(nombre);
         especialidad.setDescripcion(request.getDescripcion());
+        especialidad.setImagenUrl(request.getImagenUrl());
 
         return EspecialidadMapper.toResponseDTO(especialidadRepository.save(especialidad));
     }

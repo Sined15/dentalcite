@@ -6,6 +6,7 @@ import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
 import lombok.Data;
 
 import java.util.UUID;
@@ -42,4 +43,8 @@ public class TratamientoRequestDTO {
 
     @NotNull(message = "La especialidad es obligatoria")
     private UUID especialidadId;
+
+    /** RF-09 (v4): opcional. Un tratamiento sin imagen se pinta con un marcador. */
+    @Size(max = 500, message = "La ruta de la imagen no puede pasar de 500 caracteres")
+    private String imagenUrl;
 }

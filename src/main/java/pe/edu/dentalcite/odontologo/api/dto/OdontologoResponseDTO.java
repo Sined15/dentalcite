@@ -16,5 +16,6 @@ public class OdontologoResponseDTO {
     private String apellidos;
     private UUID fichaId;
     private Boolean activo;
+    private String imagenUrl;
     private Set<EspecialidadResponseDTO> especialidades;
 }

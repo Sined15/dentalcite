@@ -31,8 +31,12 @@ public class PasswordFilter extends OncePerRequestFilter {
         String requestURI = request.getRequestURI();
         
         // Fail-Fast: Permitir acceso inmediato a rutas públicas o al endpoint de cambio de contraseña
-        if (requestURI.equals("/api/v1/usuarios/me/password") 
+        if (requestURI.equals("/api/v1/usuarios/me/password")
                 || requestURI.startsWith("/api/v1/auth/")
+                // HU-06 (v4): el catálogo público no depende de quién lo mire, así
+                // que bloquearlo no protege nada y dejaría la portada rota a quien
+                // aún no ha cambiado su contraseña provisional.
+                || requestURI.startsWith("/api/v1/publico/")
                 || requestURI.startsWith("/swagger-ui")
                 || requestURI.startsWith("/v3/api-docs")) {
             filterChain.doFilter(request, response);

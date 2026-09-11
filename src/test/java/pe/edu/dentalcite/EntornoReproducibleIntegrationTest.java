@@ -24,6 +24,7 @@ import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.Arrays;
+import java.util.List;
 import java.util.TimeZone;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -47,6 +48,17 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class EntornoReproducibleIntegrationTest {
 
     private static final ZoneId LIMA = ZoneId.of("America/Lima");
+
+    /** Las ocho especialidades del caso simulado del informe (§3.5 Supuestos). */
+    private static final List<String> ESPECIALIDADES_DEL_CASO = List.of(
+            "Odontología General", "Ortodoncia", "Endodoncia", "Periodoncia",
+            "Odontopediatría", "Cirugía Bucal y Maxilofacial", "Rehabilitación Oral",
+            "Odontología Estética");
+
+    /** Los siete odontólogos: COP-10001 en V8, COP-10002 en V15, el resto en V20. */
+    private static final List<String> COPS_DEL_CASO = List.of(
+            "COP-10001", "COP-10002", "COP-10003", "COP-10004", "COP-10005",
+            "COP-10006", "COP-10007");
 
     private MockMvc mockMvc;
 
@@ -83,9 +95,15 @@ class EntornoReproducibleIntegrationTest {
     @Test
     void alArrancar_existenLosDatosSemillaDelCatalogoYLaAgenda() {
         // «existirán las especialidades, los consultorios, los feriados [y] el
-        // catálogo de recomendaciones».
-        assertTrue(contar("especialidades") >= 5, "faltan especialidades sembradas");
-        assertTrue(contar("consultorios") >= 3, "el caso simulado tiene tres consultorios");
+        // catálogo de recomendaciones». Los consultorios del caso se cuentan por
+        // nombre: la base del contenedor la comparten todas las pruebas de
+        // integración y varias crean los suyos, así que un `COUNT(*)` a secas
+        // pasaría en verde con la semilla incompleta. Las ocho especialidades y
+        // los siete odontólogos se comprueban abajo, uno a uno y por eso mismo.
+        Integer consultorios = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM consultorios WHERE nombre LIKE 'Consultorio %'", Integer.class);
+        assertTrue(consultorios != null && consultorios >= 5,
+                "el caso simulado tiene cinco consultorios");
         assertTrue(contar("feriados") >= 1, "faltan feriados sembrados");
         assertTrue(contar("recomendaciones") >= 1, "falta el catálogo cerrado de recomendaciones");
         // V15 añade lo que faltaba para que la agenda exista de arranque: sin
@@ -94,6 +112,45 @@ class EntornoReproducibleIntegrationTest {
         // exigía entonces darlos de alta a mano, contra RNF-11.
         assertTrue(contar("tratamientos") >= 1, "faltan tratamientos sembrados");
         assertTrue(contar("horarios_atencion") >= 1, "ningún odontólogo tiene horario declarado");
+    }
+
+    /**
+     * El caso simulado del informe: ocho especialidades, cinco consultorios y
+     * siete odontólogos (§3.5 Supuestos). Contarlos no bastaría, y no solo porque
+     * otras pruebas dejen filas en la base compartida: un odontólogo sin horario
+     * declarado no existe para el motor de disponibilidad, y una especialidad que
+     * nadie ejerce no puede proponer ninguna franja. Sembrarlos así sería no
+     * sembrarlos, y RNF-11 pide que la demostración arranque sin ningún alta
+     * manual.
+     */
+    @Test
+    void alArrancar_laSemillaReproduceElCasoSimuladoDelInforme() {
+        for (String especialidad : ESPECIALIDADES_DEL_CASO) {
+            Integer sembrada = jdbcTemplate.queryForObject(
+                    "SELECT COUNT(*) FROM especialidades WHERE nombre = ? AND activo",
+                    Integer.class, especialidad);
+            assertEquals(1, sembrada == null ? -1 : sembrada,
+                    "falta la especialidad del caso simulado: " + especialidad);
+
+            Integer quienLaEjerce = jdbcTemplate.queryForObject("""
+                    SELECT COUNT(*) FROM odontologo_especialidad oe
+                    JOIN odontologos o ON o.id = oe.odontologo_id AND o.activo
+                    JOIN especialidades e ON e.id = oe.especialidad_id
+                    WHERE e.nombre = ?
+                    """, Integer.class, especialidad);
+            assertTrue(quienLaEjerce != null && quienLaEjerce >= 1,
+                    "ningún odontólogo ejerce " + especialidad + ": no puede proponer franjas");
+        }
+
+        for (String cop : COPS_DEL_CASO) {
+            Integer conHorario = jdbcTemplate.queryForObject("""
+                    SELECT COUNT(*) FROM horarios_atencion h
+                    JOIN odontologos o ON o.id = h.odontologo_id AND o.activo
+                    WHERE o.cop = ?
+                    """, Integer.class, cop);
+            assertTrue(conHorario != null && conHorario >= 1,
+                    "el odontólogo " + cop + " no está sembrado o no tiene horario declarado");
+        }
     }
 
     @Test

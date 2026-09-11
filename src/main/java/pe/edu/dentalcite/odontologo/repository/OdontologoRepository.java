@@ -16,6 +16,13 @@ public interface OdontologoRepository extends JpaRepository<Odontologo, UUID> {
     Optional<Odontologo> findByCop(String cop);
     boolean existsByCop(String cop);
     boolean existsByFichaId(UUID fichaId);
+
+    /**
+     * El registro de odontólogo de una cuenta, por la ficha que RN-11 comparte
+     * entre ambos. Es el camino de «quién soy» a «qué odontólogo soy», y lo usa
+     * HU-17 para saber a nombre de quién se planifica.
+     */
+    Optional<Odontologo> findByFichaId(UUID fichaId);
     
     @EntityGraph(attributePaths = {"ficha", "especialidades"})
     Page<Odontologo> findAll(Pageable pageable);
@@ -39,4 +46,11 @@ public interface OdontologoRepository extends JpaRepository<Odontologo, UUID> {
     /** El mismo dato para un odontólogo concreto, con sus especialidades cargadas. */
     @EntityGraph(attributePaths = {"especialidades"})
     Optional<Odontologo> findConEspecialidadesById(UUID id);
+
+    /**
+     * HU-06 (v4): el equipo, tal como se presenta al visitante. Solo los activos
+     * y sin la ficha en el grafo: el DTO público no la expone.
+     */
+    @EntityGraph(attributePaths = {"especialidades"})
+    List<Odontologo> findByActivoTrueOrderByApellidosAscNombresAsc();
 }

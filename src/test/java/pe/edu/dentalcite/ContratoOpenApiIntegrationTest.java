@@ -81,14 +81,20 @@ class ContratoOpenApiIntegrationTest {
                 // Sprint 2
                 "/api/v1/disponibilidad",
                 "/api/v1/citas",
-                "/api/v1/citas/mias",
-                "/api/v1/citas/pendientes-cierre",
                 "/api/v1/citas/{id}/cancelar",
-                "/api/v1/citas/{id}/resultado",
                 "/api/v1/citas/{id}/historial",
                 // Sprint 3
+                "/api/v1/citas/mias",
+                "/api/v1/citas/pendientes-cierre",
+                "/api/v1/citas/{id}/resultado",
                 "/api/v1/pacientes",
-                "/api/v1/pacientes/{id}")) {
+                "/api/v1/pacientes/{id}",
+                "/api/v1/planes",
+                "/api/v1/planes/{id}/suspender",
+                "/api/v1/publico/tratamientos",
+                "/api/v1/publico/especialidades",
+                "/api/v1/publico/especialidades/{id}",
+                "/api/v1/publico/odontologos")) {
             assertTrue(paths.has(ruta), "falta en el contrato la ruta " + ruta);
         }
     }

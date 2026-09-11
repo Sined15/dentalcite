@@ -12,4 +12,5 @@ public class EspecialidadResponseDTO {
     private String nombre;
     private String descripcion;
     private Boolean activo;
+    private String imagenUrl;
 }

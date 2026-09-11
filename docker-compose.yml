@@ -35,6 +35,12 @@ services:
       APP_CITAS_ANTELACION_MINIMA_HORAS: ${APP_CITAS_ANTELACION_MINIMA_HORAS:-2}
       APP_CITAS_HORIZONTE_MAXIMO_DIAS: ${APP_CITAS_HORIZONTE_MAXIMO_DIAS:-90}
       APP_CITAS_MAXIMO_ACTIVAS: ${APP_CITAS_MAXIMO_ACTIVAS:-3}
+      # RN-06 (HU-15): hasta cuando cancela el paciente por su cuenta. Recepcion
+      # no tiene ventana. Tiene que estar declarada aqui y no solo en el
+      # application.yml: Compose solo interpola las variables que este archivo
+      # nombra, asi que sin esta linea ponerla en el .env no llegaria al
+      # contenedor y el umbral dejaria de ser ajustable sin recompilar.
+      APP_CITAS_ANTELACION_CANCELACION_HORAS: ${APP_CITAS_ANTELACION_CANCELACION_HORAS:-24}
       # HU-10: vida del bloqueo distribuido de franja en Redis.
       APP_CITAS_BLOQUEO_TTL: ${APP_CITAS_BLOQUEO_TTL:-10}
       # Palanca de la contingencia de R-01: bajar de 14 a 7 dias.

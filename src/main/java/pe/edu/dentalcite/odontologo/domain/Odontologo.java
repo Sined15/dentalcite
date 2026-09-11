@@ -44,6 +44,10 @@ public class Odontologo {
     @Column(nullable = false)
     private Boolean activo;
 
+    /** RF-10 (v4): ruta de la imagen de la ficha con que se presenta al público. */
+    @Column(name = "imagen_url", length = 500)
+    private String imagenUrl;
+
     @ManyToMany(fetch = FetchType.LAZY)
     @JoinTable(
             name = "odontologo_especialidad",

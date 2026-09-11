@@ -16,4 +16,5 @@ public class TratamientoResponseDTO {
     private Integer duracionMinutos;
     private EspecialidadResponseDTO especialidad;
     private Boolean activo;
+    private String imagenUrl;
 }

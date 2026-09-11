@@ -42,6 +42,10 @@ public class Tratamiento {
     @Column(nullable = false)
     private Boolean activo;
 
+    /** RF-09 (v4): ruta de la imagen con que el tratamiento se anuncia en la portada. */
+    @Column(name = "imagen_url", length = 500)
+    private String imagenUrl;
+
     @CreationTimestamp
     @Column(name = "creado_en", updatable = false)
     private OffsetDateTime creadoEn;

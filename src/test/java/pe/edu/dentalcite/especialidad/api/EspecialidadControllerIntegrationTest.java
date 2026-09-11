@@ -19,6 +19,7 @@ import pe.edu.dentalcite.especialidad.repository.EspecialidadRepository;
 
 import java.util.UUID;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
@@ -145,5 +146,47 @@ class EspecialidadControllerIntegrationTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(peticion("INEXISTENTE"))))
                 .andExpect(status().isNotFound());
+    }
+
+    /**
+     * Regresión. El servicio pasaba el nombre a mayúsculas al guardar, así que
+     * abrir una especialidad sembrada en la consola de administración y pulsar
+     * guardar, sin cambiar nada, la renombraba: «Ortodoncia» salía «ORTODONCIA».
+     *
+     * <p>Con la revisión v4 eso dejó de ser cosmético. El nombre se lee bajo cada
+     * imagen de la galería pública, y {@code V20} y {@code V21} siembran y
+     * enlazan las especialidades <strong>por nombre</strong>: renombrar una
+     * rompía la semilla y, con ella, el guardián de HU-01.
+     */
+    @Test
+    @WithMockUser(authorities = "SCOPE_ADMINISTRADOR")
+    void actualizarEspecialidad_sinCambiarElNombre_noLoReescribeEnMayusculas() throws Exception {
+        Especialidad esp = sembrar("Rehabilitación Oral " + UUID.randomUUID().toString().substring(0, 6));
+
+        EspecialidadRequestDTO req = peticion(esp.getNombre());
+        req.setImagenUrl("/img/catalogo/especialidad-rehabilitacion.svg");
+
+        mockMvc.perform(put("/api/v1/especialidades/" + esp.getId())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(req)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.nombre").value(esp.getNombre()))
+                .andExpect(jsonPath("$.imagenUrl").value("/img/catalogo/especialidad-rehabilitacion.svg"));
+
+        assertEquals(esp.getNombre(),
+                especialidadRepository.findById(esp.getId()).orElseThrow().getNombre(),
+                "guardar sin tocar el nombre no puede renombrar la especialidad");
+    }
+
+    @Test
+    @WithMockUser(authorities = "SCOPE_ADMINISTRADOR")
+    void crearEspecialidad_conservaLaCajaDelNombre() throws Exception {
+        String nombre = "Odontología Estética " + UUID.randomUUID().toString().substring(0, 6);
+
+        mockMvc.perform(post("/api/v1/especialidades")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(peticion(nombre))))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.nombre").value(nombre));
     }
 }

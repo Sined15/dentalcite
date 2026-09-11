@@ -75,6 +75,7 @@ public class OdontologoService {
                 .apellidos(request.getApellidos().trim())
                 .ficha(ficha)
                 .especialidades(especialidades)
+                .imagenUrl(request.getImagenUrl())
                 .activo(true)
                 .build();
 
@@ -110,6 +111,7 @@ public class OdontologoService {
         odontologo.setCop(cop);
         odontologo.setNombres(request.getNombres().trim());
         odontologo.setApellidos(request.getApellidos().trim());
+        odontologo.setImagenUrl(request.getImagenUrl());
         odontologo.setEspecialidades(resolverEspecialidades(request.getEspecialidadesIds()));
 
         return mapOdontologo(odontologoRepository.save(odontologo));
@@ -148,6 +150,7 @@ public class OdontologoService {
                 .apellidos(entity.getApellidos())
                 .fichaId(entity.getFicha().getId())
                 .activo(entity.getActivo())
+                .imagenUrl(entity.getImagenUrl())
                 .especialidades(
                         entity.getEspecialidades().stream()
                                 .map(EspecialidadMapper::toResponseDTO)

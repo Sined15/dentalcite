@@ -3,6 +3,7 @@ package pe.edu.dentalcite.odontologo.api.dto;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
 import lombok.Data;
 
 import java.util.Set;
@@ -25,4 +26,8 @@ public class OdontologoRequestDTO {
 
     @NotEmpty(message = "Debe asignar al menos una especialidad al odontólogo")
     private Set<UUID> especialidadesIds;
+
+    /** RF-10 (v4): opcional. Un odontólogo sin imagen se pinta con un marcador. */
+    @Size(max = 500, message = "La ruta de la imagen no puede pasar de 500 caracteres")
+    private String imagenUrl;
 }

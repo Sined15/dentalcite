@@ -41,17 +41,19 @@ class EspecialidadServiceTest {
     }
 
     @Test
-    void crearEspecialidad_conNombreNuevo_creaEspecialidadEnMayusculas() {
+    void crearEspecialidad_conNombreNuevo_conservaElNombreTalComoSeEscribe() {
         EspecialidadRequestDTO req = new EspecialidadRequestDTO();
-        req.setNombre("ortodoncia");
+        req.setNombre("Ortodoncia");
         req.setDescripcion("Corrección dental");
 
-        when(especialidadRepository.existsByNombreIgnoreCase("ortodoncia")).thenReturn(false);
+        when(especialidadRepository.existsByNombreIgnoreCase("Ortodoncia")).thenReturn(false);
         when(especialidadRepository.save(any(Especialidad.class))).thenAnswer(i -> i.getArgument(0));
 
         var response = especialidadService.crearEspecialidad(req);
 
-        assertEquals("ORTODONCIA", response.getNombre());
+        // El nombre se lee en la galería pública y lo enlaza la semilla por texto:
+        // pasarlo a mayúsculas rompía las dos cosas.
+        assertEquals("Ortodoncia", response.getNombre());
         assertTrue(response.getActivo());
         verify(especialidadRepository).save(any(Especialidad.class));
     }
@@ -63,7 +65,7 @@ class EspecialidadServiceTest {
                 .id(id).nombre("ORTODONCIA").activo(true).build();
 
         when(especialidadRepository.findById(id)).thenReturn(Optional.of(existente));
-        when(especialidadRepository.existsByNombreIgnoreCase("ENDODONCIA")).thenReturn(false);
+        when(especialidadRepository.existsByNombreIgnoreCase("Endodoncia")).thenReturn(false);
         when(especialidadRepository.save(any(Especialidad.class))).thenAnswer(i -> i.getArgument(0));
 
         EspecialidadRequestDTO req = new EspecialidadRequestDTO();
@@ -72,7 +74,7 @@ class EspecialidadServiceTest {
 
         EspecialidadResponseDTO res = especialidadService.actualizarEspecialidad(id, req);
 
-        assertEquals("ENDODONCIA", res.getNombre());
+        assertEquals("Endodoncia", res.getNombre());
     }
 
     @Test
@@ -90,7 +92,9 @@ class EspecialidadServiceTest {
 
         EspecialidadResponseDTO res = especialidadService.actualizarEspecialidad(id, req);
 
-        assertEquals("ORTODONCIA", res.getNombre());
+        // Guardar sin cambiar el nombre no debe reescribirlo: es lo que renombraba
+        // «Ortodoncia» a «ORTODONCIA» con solo abrir la pantalla y guardar.
+        assertEquals("Ortodoncia", res.getNombre());
         verify(especialidadRepository, never()).existsByNombreIgnoreCase(any());
     }
 
@@ -99,7 +103,7 @@ class EspecialidadServiceTest {
         UUID id = UUID.randomUUID();
         when(especialidadRepository.findById(id)).thenReturn(Optional.of(
                 Especialidad.builder().id(id).nombre("ORTODONCIA").activo(true).build()));
-        when(especialidadRepository.existsByNombreIgnoreCase("ENDODONCIA")).thenReturn(true);
+        when(especialidadRepository.existsByNombreIgnoreCase("Endodoncia")).thenReturn(true);
 
         EspecialidadRequestDTO req = new EspecialidadRequestDTO();
         req.setNombre("Endodoncia");

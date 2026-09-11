@@ -161,16 +161,17 @@ class DisponibilidadRendimientoIntegrationTest {
      * Llena la agenda al 70 % de la <strong>capacidad de la clínica</strong>, que
      * es lo que RNF-01 mide: no el 70 % de la jornada de cada odontólogo.
      *
-     * <p>La diferencia no es cosmética. Cinco odontólogos ocupados el 70 % de sus
-     * dieciséis medias horas darían cincuenta y cinco citas diarias, y con tres
-     * consultorios la clínica solo admite cuarenta y ocho: es un escenario
-     * imposible, y sembrarlo violaba RN-02. Antes pasaba inadvertido porque nada
-     * lo comprobaba; desde HU-10 lo rechaza la restricción de exclusión de la
-     * base, que es exactamente su trabajo.
+     * <p>La diferencia no es cosmética: ocupar a cada odontólogo el 70 % de sus
+     * dieciséis medias horas puede pedir más citas simultáneas que consultorios
+     * tiene la clínica, que es un escenario imposible y viola RN-02. Antes pasaba
+     * inadvertido porque nada lo comprobaba; desde HU-10 lo rechaza la restricción
+     * de exclusión de la base, que es exactamente su trabajo.
      *
      * <p>Se llenan once de las dieciséis franjas con todos los consultorios
-     * ocupados: 33 de 48, un 69 %. En cada franja atienden tantos odontólogos
-     * como consultorios haya, rotando para que ninguno se solape consigo mismo.
+     * ocupados, un 69 % de la capacidad: con los cinco consultorios que siembra
+     * V20 son 55 citas diarias de 80 plazas (antes de V20, 33 de 48). En cada
+     * franja atienden tantos odontólogos como consultorios haya, rotando para que
+     * ninguno se solape consigo mismo.
      */
     private void sembrarOcupacion(List<Odontologo> entidades, List<Consultorio> consultorios,
             Tratamiento tratamiento) {

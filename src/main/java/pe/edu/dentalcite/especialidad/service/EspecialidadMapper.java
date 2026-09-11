@@ -19,6 +19,7 @@ public final class EspecialidadMapper {
                 .nombre(entity.getNombre())
                 .descripcion(entity.getDescripcion())
                 .activo(entity.getActivo())
+                .imagenUrl(entity.getImagenUrl())
                 .build();
     }
 }

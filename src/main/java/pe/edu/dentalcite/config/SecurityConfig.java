@@ -86,6 +86,15 @@ public class SecurityConfig {
                 .requestMatchers("/api/v1/auth/login", "/api/v1/auth/registro").permitAll()
                 .requestMatchers("/api/v1/auth/logout").authenticated()
                 .requestMatchers("/swagger-ui/**", "/v3/api-docs/**", "/swagger-ui.html", "/error").permitAll()
+                // HU-06 (v4): el catalogo clinico se recorre sin sesion, que es lo
+                // que RNF-04 exceptua junto con la disponibilidad. Son dos reglas y
+                // no una, por la leccion del comodin de citas: sin la segunda,
+                // cualquier ruta bajo este prefijo que no fuera GET caeria en el
+                // anyRequest().authenticated() del final y quedaria abierta a los
+                // cuatro roles. El prefijo es de solo lectura, asi que lo correcto
+                // es negar todo lo demas.
+                .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/v1/publico/**").permitAll()
+                .requestMatchers("/api/v1/publico/**").denyAll()
                 .requestMatchers("/api/v1/usuarios/me/password").authenticated()
                 .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/v1/usuarios/me").authenticated()
                 .requestMatchers("/api/v1/odontologos/*/horarios/**").hasAnyAuthority("SCOPE_ODONTOLOGO", "SCOPE_ADMINISTRADOR")
@@ -125,6 +134,12 @@ public class SecurityConfig {
                 .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/v1/citas/pendientes-cierre").hasAnyAuthority("SCOPE_ODONTOLOGO", "SCOPE_RECEPCIONISTA", "SCOPE_ADMINISTRADOR")
                 .requestMatchers(org.springframework.http.HttpMethod.PATCH, "/api/v1/citas/*/resultado").hasAnyAuthority("SCOPE_ODONTOLOGO", "SCOPE_RECEPCIONISTA", "SCOPE_ADMINISTRADOR")
                 .requestMatchers("/api/v1/citas/**").hasAnyAuthority("SCOPE_RECEPCIONISTA", "SCOPE_ADMINISTRADOR")
+                // HU-17 · RF-23: planificar es del odontologo y del administrador.
+                // El comodin cubre las dos operaciones y todo lo que se anada
+                // bajo el prefijo, para que ninguna ruta nueva caiga en el
+                // anyRequest() del final. Que el odontologo solo pueda suspender
+                // lo suyo no es un patron de ruta: lo decide PlanService.
+                .requestMatchers("/api/v1/planes/**").hasAnyAuthority("SCOPE_ODONTOLOGO", "SCOPE_ADMINISTRADOR")
                 // HU-12: el alta presencial es de recepcion y administracion.
                 .requestMatchers(org.springframework.http.HttpMethod.POST, "/api/v1/pacientes").hasAnyAuthority("SCOPE_RECEPCIONISTA", "SCOPE_ADMINISTRADOR")
                 // HU-13 · RF-07: la busqueda es del «personal». El PACIENTE no

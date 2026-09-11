@@ -8,6 +8,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import pe.edu.dentalcite.tratamiento.domain.Tratamiento;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -30,4 +31,16 @@ public interface TratamientoRepository extends JpaRepository<Tratamiento, UUID> 
      */
     @EntityGraph(attributePaths = {"especialidad"})
     Optional<Tratamiento> findWithEspecialidadById(UUID id);
+
+    /**
+     * HU-06 (v4): los tratamientos que la portada anuncia, y los de una
+     * especialidad en su detalle. Solo los activos, y con la especialidad en el
+     * grafo por la misma razón que arriba: el DTO público la lee fuera de la
+     * transacción.
+     */
+    @EntityGraph(attributePaths = {"especialidad"})
+    List<Tratamiento> findByActivoTrueOrderByNombreAsc();
+
+    @EntityGraph(attributePaths = {"especialidad"})
+    List<Tratamiento> findByEspecialidadIdAndActivoTrueOrderByNombreAsc(UUID especialidadId);
 }

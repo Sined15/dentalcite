@@ -52,6 +52,7 @@ public class TratamientoService {
                 .codigo(codigo)
                 .nombre(request.getNombre().trim())
                 .descripcion(request.getDescripcion())
+                .imagenUrl(request.getImagenUrl())
                 .duracionMinutos(request.getDuracionMinutos())
                 .especialidad(especialidad)
                 .activo(true)
@@ -83,6 +84,7 @@ public class TratamientoService {
         tratamiento.setCodigo(codigo);
         tratamiento.setNombre(request.getNombre().trim());
         tratamiento.setDescripcion(request.getDescripcion());
+        tratamiento.setImagenUrl(request.getImagenUrl());
         tratamiento.setDuracionMinutos(request.getDuracionMinutos());
         tratamiento.setEspecialidad(especialidad);
 
@@ -114,6 +116,7 @@ public class TratamientoService {
                 .duracionMinutos(entity.getDuracionMinutos())
                 .especialidad(EspecialidadMapper.toResponseDTO(entity.getEspecialidad()))
                 .activo(entity.getActivo())
+                .imagenUrl(entity.getImagenUrl())
                 .build();
     }
 }
