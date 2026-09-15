@@ -4,6 +4,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -12,6 +13,7 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.server.ResponseStatusException;
+import pe.edu.dentalcite.cita.domain.Cita;
 import pe.edu.dentalcite.common.exception.ResourceNotFoundException;
 import pe.edu.dentalcite.ficha.domain.Ficha;
 import pe.edu.dentalcite.ficha.repository.FichaRepository;
@@ -27,15 +29,19 @@ import pe.edu.dentalcite.tratamiento.repository.TratamientoRepository;
 import pe.edu.dentalcite.usuario.domain.Usuario;
 import pe.edu.dentalcite.usuario.repository.UsuarioRepository;
 
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
@@ -56,6 +62,7 @@ class PlanServiceTest {
     @Mock private OdontologoRepository odontologoRepository;
     @Mock private UsuarioRepository usuarioRepository;
     @Mock private PacienteAccessGuard accessGuard;
+    @Mock private EnlaceDeSesiones enlaceDeSesiones;
 
     private PlanService servicio;
 
@@ -68,7 +75,7 @@ class PlanServiceTest {
     @BeforeEach
     void setUp() {
         servicio = new PlanService(planRepository, fichaRepository, tratamientoRepository,
-                odontologoRepository, usuarioRepository, accessGuard);
+                odontologoRepository, usuarioRepository, accessGuard, enlaceDeSesiones);
 
         luisUsuarioId = UUID.randomUUID();
         fichaLuis = Ficha.builder().id(UUID.randomUUID()).numeroHistoria("HC-00009").build();
@@ -125,6 +132,51 @@ class PlanServiceTest {
                 new org.hibernate.exception.ConstraintViolationException(
                         "duplicate key value violates unique constraint \"ux_plan_activo_por_tratamiento\"",
                         new java.sql.SQLException("23505"), "ux_plan_activo_por_tratamiento"));
+    }
+
+    // ------------------------------------------------------------------
+    // Las citas ya atendidas ocupan sesiones al crear el plan
+    // ------------------------------------------------------------------
+
+    @Test
+    void crear_pideEnlazarLasCitasYaAtendidasSobreElPlanGuardado() {
+        todoEnOrden();
+
+        servicio.crear(peticion(3));
+
+        ArgumentCaptor<Plan> plan = ArgumentCaptor.forClass(Plan.class);
+        verify(enlaceDeSesiones).enlazarRetroactivas(plan.capture(), any(OffsetDateTime.class));
+        // Con el plan ya guardado: si el índice lo hubiera rechazado no habría a
+        // qué enlazar nada.
+        assertNotNull(plan.getValue().getId());
+        assertEquals(fichaPaciente, plan.getValue().getFicha());
+    }
+
+    @Test
+    void crear_conUnPlanActivoDuplicado_noIntentaEnlazarNada() {
+        todoEnOrden();
+        doThrow(planDuplicado()).when(planRepository).saveAndFlush(any());
+
+        assertThrows(IllegalStateException.class, () -> servicio.crear(peticion(3)));
+        verify(enlaceDeSesiones, never()).enlazarRetroactivas(any(), any());
+    }
+
+    @Test
+    void crear_devuelveLaCitaQueOcupaCadaSesion() {
+        todoEnOrden();
+        Cita atendida = Cita.builder().id(UUID.randomUUID()).codigo("CIT-000042")
+                .inicio(OffsetDateTime.parse("2026-09-01T09:00:00-05:00"))
+                .estado(Cita.ESTADO_ATENDIDA).build();
+        doAnswer(inv -> ((Plan) inv.getArgument(0)).enlazarRetroactivas(List.of(atendida)))
+                .when(enlaceDeSesiones).enlazarRetroactivas(any(Plan.class), any(OffsetDateTime.class));
+
+        PlanResponseDTO plan = servicio.crear(peticion(3));
+
+        assertEquals("ATENDIDA", plan.getSesiones().get(0).getEstado());
+        assertEquals("CIT-000042", plan.getSesiones().get(0).getCita().getCodigo());
+        assertEquals(atendida.getInicio(), plan.getSesiones().get(0).getCita().getInicio());
+        assertEquals("PENDIENTE", plan.getSesiones().get(1).getEstado());
+        assertNull(plan.getSesiones().get(1).getCita());
     }
 
     // ------------------------------------------------------------------

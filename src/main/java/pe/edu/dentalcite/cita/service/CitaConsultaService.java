@@ -73,6 +73,16 @@ public class CitaConsultaService {
      * superior se abre al día siguiente: pedir el 14 al 14 tiene que devolver la
      * cita de las 19:00 de ese día, y comparar contra el inicio del 14 la habría
      * dejado fuera.
+     *
+     * <p><strong>Quién ve qué lo decide el rol</strong>, como en la cola de
+     * cierre. Recepción y administración ven la clínica entera y el odontólogo
+     * solo las suyas. El paciente tiene su propia consulta, {@link #mias}.
+     *
+     * <p>Al odontólogo se le <strong>ignora</strong> el {@code odontologoId} que
+     * mande, en vez de cruzarlo con el suyo. Cruzarlos devolvería una página
+     * vacía al pedir los de otro, y una lista vacía dice «no tienes citas», que
+     * es una respuesta falsa y de las más difíciles de depurar. Su ámbito no es
+     * un filtro que él elija: sale del token.
      */
     @Transactional(readOnly = true)
     public Page<CitaResumenDTO> consultar(LocalDate desde, LocalDate hasta, UUID odontologoId,
@@ -89,7 +99,13 @@ public class CitaConsultaService {
         OffsetDateTime inicio = desde.atStartOfDay(zona).toOffsetDateTime();
         OffsetDateTime fin = hasta.plusDays(1).atStartOfDay(zona).toOffsetDateTime();
 
-        return citaRepository.buscar(inicio, fin, null, odontologoId, estadoNormalizado, pageable)
+        boolean esOdontologo = esOdontologoSinPrivilegios();
+        UUID fichaDelOdontologo = esOdontologo ? fichaDelUsuarioAutenticado() : null;
+        UUID odontologoPedido = esOdontologo ? null : odontologoId;
+
+        return citaRepository
+                .buscar(inicio, fin, null, odontologoPedido, fichaDelOdontologo,
+                        estadoNormalizado, pageable)
                 .map(this::resumen);
     }
 
@@ -122,7 +138,7 @@ public class CitaConsultaService {
         OffsetDateTime fin = hasta == null ? null
                 : hasta.plusDays(1).atStartOfDay(zona).toOffsetDateTime();
 
-        return citaRepository.buscar(inicio, fin, fichaId, null, estadoNormalizado, pageable)
+        return citaRepository.buscar(inicio, fin, fichaId, null, null, estadoNormalizado, pageable)
                 .map(this::resumen);
     }
 

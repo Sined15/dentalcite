@@ -70,6 +70,12 @@ class EscenarioDePacientes {
     UUID usuarioDelPaciente;
     /** Cuenta del odontólogo que sí ha atendido al paciente con cuenta. */
     UUID usuarioOdontologoPropio;
+    /**
+     * Ficha de ese mismo odontólogo. Existe para vincular su cuenta con su
+     * registro, no porque se atienda en la clínica: el padrón de pacientes no la
+     * lista ni la deja abrir, y hace falta tenerla a mano para comprobarlo.
+     */
+    Ficha fichaOdontologoPropio;
     /** Cuenta del odontólogo cuya única cita con él está CANCELADA. */
     UUID usuarioOdontologoAjeno;
 
@@ -106,6 +112,7 @@ class EscenarioDePacientes {
         Odontologo propio = nuevoOdontologo("Propio", especialidad);
         Odontologo ajeno = nuevoOdontologo("Ajeno", especialidad);
         usuarioOdontologoPropio = nuevaCuenta("ODONTOLOGO", propio.getFicha());
+        fichaOdontologoPropio = propio.getFicha();
         usuarioOdontologoAjeno = nuevaCuenta("ODONTOLOGO", ajeno.getFicha());
 
         Consultorio consultorio = consultorioRepository.findByInoperativoFalse().get(0);

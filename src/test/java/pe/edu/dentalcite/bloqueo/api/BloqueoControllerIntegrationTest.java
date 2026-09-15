@@ -154,6 +154,27 @@ class BloqueoControllerIntegrationTest {
     }
 
     @Test
+    void crearBloqueo_sobreLaAgendaDeOtroOdontologo_retorna403() throws Exception {
+        // Bloquear al colega no es un permiso menor que bloquear el consultorio:
+        // deja sin agenda a quien no se ha enterado, y la disponibilidad deja de
+        // ofrecer sus franjas. El odontólogo solo opera sobre su propio registro.
+        UUID usuarioId = usuarioRepository.findByCorreo("dr.perez@dentalcite.com").orElseThrow().getId();
+        UUID deOtro = odontologoRepository.findByCop("COP-10002").orElseThrow().getId();
+
+        BloqueoRequest req = new BloqueoRequest();
+        req.setOdontologoId(deOtro);
+        req.setMotivo("Le despejo la tarde");
+        req.setFechaInicio(OffsetDateTime.now().plusDays(410));
+        req.setFechaFin(OffsetDateTime.now().plusDays(411));
+
+        mockMvc.perform(post("/api/v1/bloqueos")
+                .with(user(usuarioId.toString()).authorities(new SimpleGrantedAuthority("SCOPE_ODONTOLOGO")))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(req)))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
     void crearBloqueo_soloDeSuPropiaAgenda_comoOdontologo_retorna201() throws Exception {
         // Control positivo: la Tabla 10 sí concede al odontólogo C sobre los
         // bloqueos de su propia agenda, y eso no puede haberse roto.

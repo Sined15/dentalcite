@@ -12,9 +12,9 @@ import java.util.UUID;
 /**
  * Un plan de tratamiento con sus sesiones (HU-17 · RF-23).
  *
- * <p><strong>No lleva avance.</strong> RN-14 lo deriva de las citas atendidas
- * enlazadas y eso es HU-18, del Sprint 4; anadir aqui un campo a cero seria
- * prometer un dato que todavia no significa nada.
+ * <p><strong>No lleva el avance como cifra.</strong> Se cuenta sobre las
+ * sesiones —cuántas tienen cita— cada vez que se pregunta, y un campo que lo
+ * resumiera sería un dato más que mantener de acuerdo con ellas.
  */
 @Data
 @Builder
@@ -32,7 +32,7 @@ public class PlanResponseDTO {
     /** Solo presente en los suspendidos. */
     private String motivoSuspension;
     private OffsetDateTime creadoEn;
-    /** Numeradas desde 1. En este Sprint todas nacen PENDIENTE (RN-15). */
+    /** Numeradas desde 1. Las ocupadas traen la cita que las ocupa. */
     private List<Sesion> sesiones;
 
     @Data
@@ -53,5 +53,21 @@ public class PlanResponseDTO {
         private Integer numero;
         /** PENDIENTE, ATENDIDA o CERRADA (RN-15). */
         private String estado;
+        /** La cita atendida que la ocupa; nula mientras la sesión está pendiente. */
+        private CitaEnlazada cita;
+    }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class CitaEnlazada {
+        private UUID id;
+        private String codigo;
+        /**
+         * Instante con desfase, igual que {@link PlanResponseDTO#creadoEn}: la
+         * fecha que se lee en pantalla la pone el cliente en la zona de la clínica.
+         */
+        private OffsetDateTime inicio;
     }
 }

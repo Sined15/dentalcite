@@ -66,11 +66,11 @@ public class PlanController {
                     + " Un plan lleva el nombre del paciente, asi que este listado es una lectura de la"
                     + " historia clinica y cae bajo RNF-06: el ODONTOLOGO solo ve los planes de pacientes a"
                     + " los que ha atendido."
-                    + " **No trae el avance**, a proposito: RN-14 lo deriva de las citas atendidas enlazadas y"
-                    + " eso es HU-18. La consulta rica de RF-26 —avance, linea de tiempo y recomendaciones— es"
-                    + " HU-20 y llegara con su propio contrato.")
+                    + " Cada sesion trae la cita atendida que la ocupa, o `null` si sigue pendiente. **No trae"
+                    + " el avance como cifra**: se cuenta sobre las sesiones, y la consulta con avance, linea de"
+                    + " tiempo y recomendaciones llegara con su propio contrato.")
     @ApiResponses({
-            @ApiResponse(responseCode = "200", description = "Planes del paciente, sin avance"),
+            @ApiResponse(responseCode = "200", description = "Planes del paciente, con la cita que ocupa cada sesion"),
             @ApiResponse(responseCode = "401", description = "Sin token o con token revocado"),
             @ApiResponse(responseCode = "403", description = "El rol no puede consultar planes, o no ha atendido a este paciente (RNF-04, RNF-06)")
     })

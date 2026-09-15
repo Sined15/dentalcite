@@ -21,6 +21,8 @@ import pe.edu.dentalcite.common.exception.ResourceNotFoundException;
 import pe.edu.dentalcite.consultorio.domain.Consultorio;
 import pe.edu.dentalcite.ficha.domain.Ficha;
 import pe.edu.dentalcite.odontologo.domain.Odontologo;
+import pe.edu.dentalcite.plan.service.EnlaceDeSesiones;
+import pe.edu.dentalcite.plan.service.EnlaceDeSesiones.SesionOcupada;
 import pe.edu.dentalcite.tratamiento.domain.Tratamiento;
 import pe.edu.dentalcite.usuario.domain.Usuario;
 import pe.edu.dentalcite.usuario.repository.UsuarioRepository;
@@ -54,6 +56,7 @@ class CierreDeCitaTest {
     @Mock private CitaRepository citaRepository;
     @Mock private CitaHistorialRepository historialRepository;
     @Mock private UsuarioRepository usuarioRepository;
+    @Mock private EnlaceDeSesiones enlaceDeSesiones;
 
     private CierreDeCita servicio;
 
@@ -64,7 +67,7 @@ class CierreDeCitaTest {
     @BeforeEach
     void setUp() {
         servicio = new CierreDeCita(citaRepository, historialRepository, usuarioRepository,
-                "America/Lima");
+                enlaceDeSesiones, "America/Lima");
         recepcionistaId = UUID.randomUUID();
 
         fichaDelOdontologo = Ficha.builder().id(UUID.randomUUID()).numeroHistoria("HC-00009")
@@ -143,6 +146,49 @@ class CierreDeCitaTest {
         assertEquals(recepcionistaId, fila.getValue().getUsuario().getId());
         // Sin motivo: RF-22 no pide ninguno y el resultado se explica solo.
         assertNull(fila.getValue().getMotivo());
+    }
+
+    // ------------------------------------------------------------------
+    // La cita atendida ocupa una sesión de su plan
+    // ------------------------------------------------------------------
+
+    @Test
+    void registrarResultado_atendidaConPlan_devuelveLaSesionQueOcupa() {
+        Cita cita = cita(Cita.ESTADO_CONFIRMADA, 2);
+        UUID planId = UUID.randomUUID();
+        when(enlaceDeSesiones.enlazarCitaAtendida(cita))
+                .thenReturn(Optional.of(new SesionOcupada(planId, 2, "Endodoncia")));
+
+        CitaResponseDTO respuesta = servicio.registrarResultado(cita.getId(), "ATENDIDA");
+
+        assertEquals(planId, respuesta.getSesionEnlazada().getPlanId());
+        assertEquals(2, respuesta.getSesionEnlazada().getNumero());
+        assertEquals("Endodoncia", respuesta.getSesionEnlazada().getTratamiento());
+    }
+
+    @Test
+    void registrarResultado_atendidaSinPlan_noTraeSesion() {
+        Cita cita = cita(Cita.ESTADO_CONFIRMADA, 2);
+        when(enlaceDeSesiones.enlazarCitaAtendida(cita)).thenReturn(Optional.empty());
+
+        assertNull(servicio.registrarResultado(cita.getId(), "ATENDIDA").getSesionEnlazada());
+    }
+
+    @Test
+    void registrarResultado_noAsistio_noIntentaOcuparNingunaSesion() {
+        Cita cita = cita(Cita.ESTADO_CONFIRMADA, 2);
+
+        assertNull(servicio.registrarResultado(cita.getId(), "NO_ASISTIO").getSesionEnlazada());
+        verify(enlaceDeSesiones, never()).enlazarCitaAtendida(any());
+    }
+
+    @Test
+    void registrarResultado_queNoPuedeRegistrarse_noIntentaOcuparNingunaSesion() {
+        Cita cita = cita(Cita.ESTADO_CONFIRMADA, -3);
+
+        assertThrows(IllegalStateException.class,
+                () -> servicio.registrarResultado(cita.getId(), "ATENDIDA"));
+        verify(enlaceDeSesiones, never()).enlazarCitaAtendida(any());
     }
 
     // ------------------------------------------------------------------

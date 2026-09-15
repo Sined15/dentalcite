@@ -30,13 +30,24 @@ public interface FichaRepository extends JpaRepository<Ficha, UUID> {
      * '%…%'} recorrería la tabla entera.
      *
      * <p>Sin término devuelve todas: el listado se abre poblado, no en blanco.
+     *
+     * <p><strong>Menos las del odontólogo.</strong> Un odontólogo tiene ficha
+     * para que su cuenta resuelva a su registro, no porque se atienda en la
+     * clínica: la suya no tiene historia que consultar y en el padrón se lee como
+     * un error. Con siete odontólogos y un puñado de pacientes, el listado era
+     * sobre todo personal. Quien busca al odontólogo lo encuentra donde vive, que
+     * es el registro de odontólogos y su cuenta de acceso.
+     *
+     * <p>El paréntesis alrededor del término **es la regla**: sin él, el
+     * {@code OR} se lo comería y la exclusión solo aplicaría a la última rama.
      */
     @Query("""
             SELECT f FROM Ficha f
-            WHERE :termino IS NULL
-               OR LOWER(f.apellidos) LIKE :prefijo
-               OR f.documento = :termino
-               OR UPPER(f.numeroHistoria) = UPPER(:termino)
+            WHERE (:termino IS NULL
+                   OR LOWER(f.apellidos) LIKE :prefijo
+                   OR f.documento = :termino
+                   OR UPPER(f.numeroHistoria) = UPPER(:termino))
+              AND NOT EXISTS (SELECT 1 FROM Odontologo o WHERE o.ficha = f)
             """)
     Page<Ficha> buscar(@Param("termino") String termino, @Param("prefijo") String prefijo,
             Pageable pageable);

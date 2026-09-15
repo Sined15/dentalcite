@@ -87,6 +87,7 @@ class AgendaIntegrationTest {
 
     private UUID pacienteUsuarioId;
     private UUID recepcionUsuarioId;
+    private UUID odontologoUsuarioId;
     private UUID tratamientoId;
     private UUID odontologoId;
     private UUID otroOdontologoId;
@@ -130,6 +131,7 @@ class AgendaIntegrationTest {
         fichaPaciente = nuevaFicha("Ana", "Torres");
         pacienteUsuarioId = sembrarUsuario("Ana Torres", "PACIENTE", fichaPaciente);
         recepcionUsuarioId = sembrarUsuario("Recepcion de Agenda", "RECEPCIONISTA", null);
+        odontologoUsuarioId = sembrarUsuario("Luis Perez", "ODONTOLOGO", fichaOdontologo);
     }
 
     private UUID sembrarOdontologo(Ficha ficha, String nombres, String apellidos,
@@ -175,6 +177,12 @@ class AgendaIntegrationTest {
         horariosSembrados.forEach(horarioRepository::deleteById);
         usuarioRepository.deleteById(pacienteUsuarioId);
         usuarioRepository.deleteById(recepcionUsuarioId);
+        // No hay clave ajena que lo obligue —`usuarios.ficha_id` es ON DELETE SET
+        // NULL, asi que borrar la ficha dejaria la cuenta viva y sin ella—, y por
+        // eso mismo hay que acordarse: la base del contenedor la comparten todas
+        // las pruebas de integracion, y una cuenta huerfana por ejecucion es
+        // basura que nadie recoge.
+        usuarioRepository.deleteById(odontologoUsuarioId);
         odontologoRepository.deleteById(odontologoId);
         odontologoRepository.deleteById(otroOdontologoId);
         tratamientoRepository.deleteById(tratamientoId);
@@ -297,6 +305,38 @@ class AgendaIntegrationTest {
         reservar(otroOdontologoId, LocalTime.of(10, 0));
 
         consultarAgenda("odontologoId", odontologoId.toString())
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content.length()").value(1))
+                .andExpect(jsonPath("$.content[0].odontologo.nombre").value("Luis Perez"));
+    }
+
+    /**
+     * La agenda existia solo para el mostrador, de modo que el odontologo no podia
+     * ver sus citas del dia: solo las ya terminadas, por la cola de cierre.
+     */
+    @Test
+    void consultarAgenda_comoOdontologo_devuelveSoloLasSuyas() throws Exception {
+        reservar(odontologoId, LocalTime.of(9, 0));
+        reservar(otroOdontologoId, LocalTime.of(10, 0));
+
+        consultarAgenda("SCOPE_ODONTOLOGO", odontologoUsuarioId)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content.length()").value(1))
+                .andExpect(jsonPath("$.content[0].odontologo.nombre").value("Luis Perez"));
+    }
+
+    /**
+     * Y el ambito no se lo elige el: pedir el identificador de otro no devuelve
+     * ni las de aquel ni una pagina vacia —que diria «no tienes citas»—, sino las
+     * suyas. El filtro se ignora porque para el no significa nada.
+     */
+    @Test
+    void consultarAgenda_comoOdontologo_pidiendoLasDeOtro_sigueViendoLasSuyas() throws Exception {
+        reservar(odontologoId, LocalTime.of(9, 0));
+        reservar(otroOdontologoId, LocalTime.of(10, 0));
+
+        consultarAgenda("SCOPE_ODONTOLOGO", odontologoUsuarioId,
+                "odontologoId", otroOdontologoId.toString())
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content.length()").value(1))
                 .andExpect(jsonPath("$.content[0].odontologo.nombre").value("Luis Perez"));
@@ -505,7 +545,9 @@ class AgendaIntegrationTest {
     }
 
     @Test
-    void consultarAgenda_comoOdontologo_devuelve403() throws Exception {
+    void consultarAgenda_comoOdontologoSinFicha_devuelve403() throws Exception {
+        // Una cuenta de odontologo sin ficha no tiene «las suyas» que devolver, y
+        // una pagina vacia diria que no tiene citas. Falla cerrado.
         consultarAgenda("SCOPE_ODONTOLOGO", recepcionUsuarioId).andExpect(status().isForbidden());
     }
 

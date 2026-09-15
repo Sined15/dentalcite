@@ -13,6 +13,7 @@ import pe.edu.dentalcite.cita.repository.CitaHistorialRepository;
 import pe.edu.dentalcite.cita.repository.CitaRepository;
 import pe.edu.dentalcite.common.exception.ResourceNotFoundException;
 import pe.edu.dentalcite.odontologo.service.OdontologoOwnershipGuard;
+import pe.edu.dentalcite.plan.service.EnlaceDeSesiones;
 import pe.edu.dentalcite.usuario.domain.Usuario;
 import pe.edu.dentalcite.usuario.repository.UsuarioRepository;
 
@@ -64,15 +65,24 @@ public class CierreDeCita {
     private final CitaRepository citaRepository;
     private final CitaHistorialRepository historialRepository;
     private final UsuarioRepository usuarioRepository;
+
+    /**
+     * La cita atendida ocupa una sesión del plan de su paciente, y lo hace dentro
+     * de esta misma transacción: si el cierre se deshace, la sesión vuelve a
+     * quedar pendiente con él.
+     */
+    private final EnlaceDeSesiones enlaceDeSesiones;
     private final ZoneId zona;
 
     public CierreDeCita(CitaRepository citaRepository,
             CitaHistorialRepository historialRepository,
             UsuarioRepository usuarioRepository,
+            EnlaceDeSesiones enlaceDeSesiones,
             @Value("${app.zona-horaria:America/Lima}") String zonaHoraria) {
         this.citaRepository = citaRepository;
         this.historialRepository = historialRepository;
         this.usuarioRepository = usuarioRepository;
+        this.enlaceDeSesiones = enlaceDeSesiones;
         this.zona = ZoneId.of(zonaHoraria);
     }
 
@@ -137,8 +147,21 @@ public class CierreDeCita {
         // ofrece nadie —el motor solo mira desde ahora hacia adelante—, así que
         // invalidar la caché aquí sería trabajo inútil en cada cierre.
 
+        CitaResponseDTO respuesta = mapear(cita);
+
+        // Solo la atendida ocupa una sesión: la consulta a la que el paciente no
+        // vino no ha hecho avanzar ningún tratamiento.
+        if (Cita.ESTADO_ATENDIDA.equals(estadoNuevo)) {
+            enlaceDeSesiones.enlazarCitaAtendida(cita).ifPresent(ocupada ->
+                    respuesta.setSesionEnlazada(CitaResponseDTO.SesionEnlazada.builder()
+                            .planId(ocupada.planId())
+                            .numero(ocupada.numero())
+                            .tratamiento(ocupada.tratamiento())
+                            .build()));
+        }
+
         log.info("Cita {} cerrada como {}", cita.getCodigo(), estadoNuevo);
-        return mapear(cita);
+        return respuesta;
     }
 
     /**

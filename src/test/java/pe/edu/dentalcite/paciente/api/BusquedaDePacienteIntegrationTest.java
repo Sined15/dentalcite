@@ -94,6 +94,23 @@ class BusquedaDePacienteIntegrationTest {
                 .andExpect(jsonPath("$.content[0].tieneCuenta").value(true));
     }
 
+    /**
+     * El odontólogo tiene ficha para que su cuenta resuelva a su registro, no
+     * porque se atienda aquí: la suya no tiene historia que consultar y en el
+     * padrón se lee como un error. Con la semilla del caso simulado el listado
+     * llegó a ser siete odontólogos y una paciente.
+     */
+    @Test
+    @WithMockUser(authorities = "SCOPE_RECEPCIONISTA")
+    void buscar_noDevuelveLaFichaDeUnOdontologo() throws Exception {
+        // Su apellido de ficha es «Propio<sufijo>», así que el término lo
+        // encontraría si la consulta no lo excluyera.
+        mockMvc.perform(get("/api/v1/pacientes").param("q", "propio" + escenario.sufijo))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content.length()").value(0))
+                .andExpect(jsonPath("$.totalElements").value(0));
+    }
+
     @Test
     @WithMockUser(authorities = "SCOPE_RECEPCIONISTA")
     void buscar_conUnTerminoQueNoCoincide_devuelvePaginaVacia() throws Exception {

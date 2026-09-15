@@ -73,6 +73,9 @@ class PacienteServiceTest {
     @Mock
     private PacienteAccessGuard accessGuard;
 
+    @Mock
+    private pe.edu.dentalcite.odontologo.repository.OdontologoRepository odontologoRepository;
+
     @InjectMocks
     private PacienteService pacienteService;
 

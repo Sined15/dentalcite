@@ -37,7 +37,7 @@ import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 
-@Tag(name = "Citas", description = "M5 · Reserva desde el portal (HU-09, RF-15) y desde recepcion (HU-14, RF-17), agenda de recepcion (HU-11, RF-18), citas del paciente (HU-15, RF-18, RF-19) y cierre de la cita (HU-16, RF-22)")
+@Tag(name = "Citas", description = "M5 · Reserva desde el portal (HU-09, RF-15) y desde recepcion (HU-14, RF-17), agenda de la clinica (HU-11, RF-18), citas del paciente (HU-15, RF-18, RF-19) y cierre de la cita (HU-16, RF-22)")
 @RestController
 @RequestMapping("/api/v1/citas")
 @RequiredArgsConstructor
@@ -73,7 +73,8 @@ public class CitaController {
     }
 
     @Operation(summary = "Consultar la agenda",
-            description = "HU-11 · RF-18 · RECEPCIONISTA y ADMINISTRADOR. Devuelve las citas cuyo inicio cae en el"
+            description = "HU-11 · RF-18 · RECEPCIONISTA y ADMINISTRADOR ven la clinica entera; el ODONTOLOGO ve"
+                    + " **las suyas**, que es la tercera audiencia del requisito. Devuelve las citas cuyo inicio cae en el"
                     + " rango de dias indicado, ambos extremos incluidos, con su paciente, su hora y su consultorio,"
                     + " ordenadas por hora. Los filtros de odontologo y de estado son opcionales; omitirlos equivale"
                     + " a «todos». Las horas son locales de la clinica y la respuesta declara su zona. La consulta"
@@ -82,7 +83,7 @@ public class CitaController {
             @ApiResponse(responseCode = "200", description = "Pagina de citas, ordenadas por hora"),
             @ApiResponse(responseCode = "400", description = "Rango invertido, fechas ausentes o estado desconocido"),
             @ApiResponse(responseCode = "401", description = "Sin token o con token revocado"),
-            @ApiResponse(responseCode = "403", description = "El rol no puede consultar la agenda de la clinica (RNF-04)")
+            @ApiResponse(responseCode = "403", description = "El rol no puede consultar la agenda, o la cuenta de odontologo no tiene ficha (RNF-04)")
     })
     @GetMapping
     public Page<CitaResumenDTO> consultarAgenda(
@@ -90,7 +91,8 @@ public class CitaController {
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate desde,
             @Parameter(description = "Ultimo dia del rango, inclusive (AAAA-MM-DD)")
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate hasta,
-            @Parameter(description = "Odontologo concreto. Omitirlo equivale a «todos»")
+            @Parameter(description = "Odontologo concreto. Omitirlo equivale a «todos». Al ODONTOLOGO se le"
+                    + " ignora: su ambito sale del token, no del filtro, de modo que siempre recibe las suyas")
             @RequestParam(required = false) UUID odontologoId,
             @Parameter(description = "CONFIRMADA, ATENDIDA, NO_ASISTIO o CANCELADA (RN-09). Omitirlo equivale a «todos»")
             @RequestParam(required = false) String estado,
@@ -174,7 +176,10 @@ public class CitaController {
                     + " responsable y su marca temporal (RF-21). Solo se puede registrar cuando la hora de fin ya"
                     + " ha pasado: las restricciones de exclusion de la base son parciales sobre CONFIRMADA, asi"
                     + " que cerrar una cita que aun no ha terminado liberaria una franja que todavia se va a"
-                    + " ocupar. El PACIENTE no puede invocarla ni sobre la suya.")
+                    + " ocupar. El PACIENTE no puede invocarla ni sobre la suya."
+                    + " Si la cita queda ATENDIDA y su paciente tiene un plan activo del mismo tratamiento con"
+                    + " sesiones pendientes, la cita ocupa la primera y la respuesta lo indica en"
+                    + " `sesionEnlazada`; en cualquier otro caso ese campo no aparece.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Resultado registrado"),
             @ApiResponse(responseCode = "400", description = "Resultado ausente o distinto de ATENDIDA y NO_ASISTIO"),

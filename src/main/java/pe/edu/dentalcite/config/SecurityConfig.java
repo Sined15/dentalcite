@@ -117,7 +117,13 @@ public class SecurityConfig {
                 // estar autenticado, y quedaria abierta a los cuatro roles. Que el
                 // paciente consulte y cancele *lo suyo* es HU-15, y necesitara sus
                 // propias rutas o una comprobacion de propiedad en el servicio.
-                .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/v1/citas").hasAnyAuthority("SCOPE_RECEPCIONISTA", "SCOPE_ADMINISTRADOR")
+                // La agenda la consultan tres audiencias, no dos: recepcion y
+                // administracion la ven entera, y el odontologo solo la suya. El
+                // paciente entra por /mias. Que el odontologo solo vea las suyas no
+                // es un patron de ruta, lo fija CitaConsultaService desde el token.
+                // Cancelar y ver la bitacora siguen siendo de recepcion: los cubre
+                // el comodin de mas abajo.
+                .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/v1/citas").hasAnyAuthority("SCOPE_ODONTOLOGO", "SCOPE_RECEPCIONISTA", "SCOPE_ADMINISTRADOR")
                 // HU-15: las citas del propio paciente. Va **antes** del comodin
                 // de mas abajo, que exige recepcion o administracion: declarada
                 // despues, el paciente recibiria 403 en su propia consulta.

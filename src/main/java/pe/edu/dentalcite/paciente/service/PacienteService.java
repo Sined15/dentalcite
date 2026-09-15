@@ -18,6 +18,7 @@ import pe.edu.dentalcite.paciente.api.dto.PacienteDetalleDTO;
 import pe.edu.dentalcite.paciente.api.dto.PacienteRequestDTO;
 import pe.edu.dentalcite.paciente.api.dto.PacienteResponseDTO;
 import pe.edu.dentalcite.paciente.api.dto.PacienteUpdateRequestDTO;
+import pe.edu.dentalcite.odontologo.repository.OdontologoRepository;
 import pe.edu.dentalcite.usuario.repository.UsuarioRepository;
 
 import java.util.ArrayList;
@@ -51,6 +52,7 @@ public class PacienteService {
     private final CitaRepository citaRepository;
     private final CitaConsultaService citaConsultaService;
     private final PacienteAccessGuard accessGuard;
+    private final OdontologoRepository odontologoRepository;
 
     @Transactional
     public PacienteResponseDTO registrar(PacienteRequestDTO request) {
@@ -96,10 +98,18 @@ public class PacienteService {
      * resultados paginados».
      *
      * <p>Quién ve qué lo decide {@link PacienteAccessGuard#odontologoDelListado()}:
-     * recepción y administración buscan en todas las fichas, y el odontólogo solo
+     * recepción y administración buscan en todo el padrón, y el odontólogo solo
      * entre las personas a las que ha atendido. Por eso son dos consultas y no un
      * filtro opcional: la del odontólogo lleva su {@code EXISTS} sobre citas, y
      * arrastrarlo en la de recepción sería pagar un semijoin que nunca filtra.
+     *
+     * <p><strong>Ninguna de las dos devuelve fichas de odontólogo.</strong> Esa
+     * ficha existe para vincular su cuenta con su registro, no porque la persona
+     * se atienda aquí, y en el padrón se lee como un error: con la semilla del
+     * caso simulado había siete odontólogos y un paciente. El odontólogo vive en
+     * su registro y en las cuentas de acceso. La exclusión está en las dos
+     * consultas y no aquí, porque filtrarla después rompería el recuento de la
+     * página.
      */
     @Transactional(readOnly = true)
     public Page<PacienteResponseDTO> buscar(String q, Pageable pageable) {
@@ -126,12 +136,20 @@ public class PacienteService {
      * RF-08: la ficha con sus datos, sus alergias y sus citas pasadas y futuras.
      *
      * <p>El 404 va antes que el 403: negar el acceso a una ficha que no existe
-     * mandaría al mostrador a buscar un permiso en vez de una errata.
+     * mandaría al mostrador a buscar un permiso en vez de una errata. La ficha de
+     * un odontólogo cuenta aquí como inexistente, por lo mismo que el listado no
+     * la ofrece: no es una historia clínica.
      */
     @Transactional(readOnly = true)
     public PacienteDetalleDTO obtener(UUID id) {
         Ficha ficha = fichaRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Paciente no encontrado con ID: " + id));
+        // Como paciente no existe, y decirlo aquí es lo que impide alcanzarla
+        // escribiendo la URL cuando el listado ya no la ofrece. Va antes del 403
+        // por la misma razón que el 404 de arriba.
+        if (odontologoRepository.existsByFichaId(id)) {
+            throw new ResourceNotFoundException("Paciente no encontrado con ID: " + id);
+        }
         accessGuard.verificarLectura(id);
 
         return PacienteDetalleDTO.builder()

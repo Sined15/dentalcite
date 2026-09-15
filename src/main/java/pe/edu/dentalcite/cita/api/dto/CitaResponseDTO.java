@@ -1,5 +1,6 @@
 package pe.edu.dentalcite.cita.api.dto;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -38,6 +39,15 @@ public class CitaResponseDTO {
     private Referencia odontologo;
     private Referencia consultorio;
 
+    /**
+     * La sesión del plan que ha ocupado esta cita al registrarse como atendida.
+     * Solo la trae esa respuesta, y solo cuando de verdad ha ocupado una: en
+     * cualquier otro caso el campo no aparece, para que ninguna pantalla lea su
+     * ausencia en otra operación como «no tiene plan».
+     */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private SesionEnlazada sesionEnlazada;
+
     @Data
     @Builder
     @NoArgsConstructor
@@ -45,5 +55,16 @@ public class CitaResponseDTO {
     public static class Referencia {
         private UUID id;
         private String nombre;
+    }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class SesionEnlazada {
+        private UUID planId;
+        private Integer numero;
+        /** El tratamiento del plan, para poder decirlo sin otra consulta. */
+        private String tratamiento;
     }
 }

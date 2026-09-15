@@ -114,6 +114,16 @@ public interface CitaRepository extends JpaRepository<Cita, UUID> {
      * <p>El orden lo impone el {@link org.springframework.data.domain.Pageable},
      * que cada controlador fija por defecto: «ordenadas por hora» es el criterio
      * de aceptación de la agenda.
+     *
+     * <p>{@code odontologoId} y {@code fichaDelOdontologoId} filtran por lo mismo
+     * y no son el mismo filtro. El primero es el <strong>que se pide</strong>: el
+     * desplegable de la agenda de recepción. El segundo es el
+     * <strong>ámbito de quien pregunta</strong>, el del odontólogo que consulta su
+     * propia agenda, y se resuelve desde el token, nunca desde la petición, igual
+     * que {@code fichaId} en «mis citas». Por eso se compara con la ficha y no con
+     * el identificador del registro: es el mismo criterio que ya usa
+     * {@link #pendientesDeCierre}, y así «las suyas» significa una sola cosa en
+     * todo el dominio.
      */
     @EntityGraph(attributePaths = {"ficha", "odontologo", "tratamiento", "consultorio",
             "creadoPor", "creadoPor.ficha"})
@@ -123,11 +133,15 @@ public interface CitaRepository extends JpaRepository<Cita, UUID> {
               AND c.inicio < COALESCE(:hasta, c.fin)
               AND (:fichaId IS NULL OR c.ficha.id = :fichaId)
               AND (:odontologoId IS NULL OR c.odontologo.id = :odontologoId)
+              AND (:fichaDelOdontologoId IS NULL
+                   OR c.odontologo.ficha.id = :fichaDelOdontologoId)
               AND (:estado IS NULL OR c.estado = :estado)
             """)
     Page<Cita> buscar(@Param("desde") OffsetDateTime desde, @Param("hasta") OffsetDateTime hasta,
             @Param("fichaId") UUID fichaId,
-            @Param("odontologoId") UUID odontologoId, @Param("estado") String estado,
+            @Param("odontologoId") UUID odontologoId,
+            @Param("fichaDelOdontologoId") UUID fichaDelOdontologoId,
+            @Param("estado") String estado,
             Pageable pageable);
 
     /**
@@ -223,11 +237,36 @@ public interface CitaRepository extends JpaRepository<Cita, UUID> {
                           WHERE c.ficha = f
                             AND c.odontologo.ficha.id = :fichaDelOdontologoId
                             AND c.estado <> 'CANCELADA')
+              AND NOT EXISTS (SELECT 1 FROM Odontologo o WHERE o.ficha = f)
             """)
     Page<Ficha> buscarPacientesDeOdontologo(@Param("termino") String termino,
             @Param("prefijo") String prefijo,
             @Param("fichaDelOdontologoId") UUID fichaDelOdontologoId,
             Pageable pageable);
+
+    /**
+     * Las citas atendidas de un paciente y un tratamiento dentro de un rango, que
+     * todavía no ocupan ninguna sesión, de la más antigua a la más reciente. Son
+     * las que puede enlazar un plan recién creado.
+     *
+     * <p>El {@code NOT EXISTS} no es una optimización: una cita que ya ocupa una
+     * sesión de un plan suspendido sigue ocupándola, y ofrecerla al plan nuevo
+     * chocaría con la unicidad de la cita en {@code plan_sesiones}.
+     */
+    @Query("""
+            SELECT c FROM Cita c
+            WHERE c.ficha.id = :fichaId
+              AND c.tratamiento.id = :tratamientoId
+              AND c.estado = 'ATENDIDA'
+              AND c.inicio >= :desde
+              AND c.inicio < :hasta
+              AND NOT EXISTS (SELECT 1 FROM PlanSesion s WHERE s.cita = c)
+            ORDER BY c.inicio ASC
+            """)
+    List<Cita> atendidasSinSesion(@Param("fichaId") UUID fichaId,
+            @Param("tratamientoId") UUID tratamientoId,
+            @Param("desde") OffsetDateTime desde,
+            @Param("hasta") OffsetDateTime hasta);
 
     /**
      * RF-15: correlativo del codigo de la cita. Sale de la secuencia de la base

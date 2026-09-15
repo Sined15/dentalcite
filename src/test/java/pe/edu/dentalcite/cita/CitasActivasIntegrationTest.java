@@ -118,7 +118,13 @@ class CitasActivasIntegrationTest {
                 .id(UUID.randomUUID()).codigo("TR-" + s).nombre("Limpieza")
                 .duracionMinutos(30).especialidad(especialidad).activo(true).build());
 
-        consultorio = consultorioRepository.findAll().get(0);
+        // Propio y no el primero de la clínica: la semilla de demostración ya cita
+        // gente en los suyos, y entonces el bloqueo de consultorio alcanzaría esas
+        // citas además de la de esta prueba. La clase es @Transactional, así que
+        // este consultorio desaparece con el rollback.
+        consultorio = consultorioRepository.save(Consultorio.builder()
+                .id(UUID.randomUUID()).nombre("Consultorio de prueba " + s)
+                .inoperativo(false).build());
     }
 
     /** Cita de una hora a partir del instante indicado, en el estado dado. */

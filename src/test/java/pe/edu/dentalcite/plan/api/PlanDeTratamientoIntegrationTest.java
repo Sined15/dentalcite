@@ -125,19 +125,19 @@ class PlanDeTratamientoIntegrationTest {
         recepcionistaId = nuevaCuenta("Recepcion", "RECEPCIONISTA", null);
         administradorId = nuevaCuenta("Admin", "ADMINISTRADOR", null);
 
-        // RNF-06: Luis ha atendido a Julio y por eso puede planificarle. Ana no,
-        // y es lo que hace comprobables las dos pruebas del final.
+        // Luis ya ha visto a Julio y por eso puede planificarle. Ana no, y es lo
+        // que hace comprobables las dos pruebas del final.
         //
-        // La cita se siembra ATENDIDA y en el pasado a proposito. Las
-        // restricciones de exclusion de V13 son *parciales sobre CONFIRMADA*, asi
-        // que una cita atendida no puede chocar con el fixture de ninguna otra
-        // clase de prueba; y `atendioAPorFichaDelOdontologo` la acepta igual,
-        // porque solo descarta las CANCELADAS.
-        citaDeLuisConJulio = nuevaCitaAtendida();
+        // La cita se siembra en el pasado y como NO_ASISTIO a proposito. Fuera de
+        // CONFIRMADA no choca con las exclusiones de la agenda de ninguna otra
+        // clase; basta para el vinculo, porque solo las canceladas no cuentan; y
+        // al no estar atendida no ocupa ninguna sesion. Si lo estuviera, cada plan
+        // de ortodoncia de esta clase naceria con su primera sesion ya ocupada.
+        citaDeLuisConJulio = nuevaCitaDelVinculo();
     }
 
-    /** La cita que acredita el vinculo de RNF-06 entre Luis y Julio. */
-    private UUID nuevaCitaAtendida() {
+    /** La cita que acredita que Luis ya ha visto a Julio. */
+    private UUID nuevaCitaDelVinculo() {
         Consultorio consultorio = consultorioRepository.findByInoperativoFalse().get(0);
         // Un solo `now()`: derivar el fin de otra llamada dejaria una duracion que
         // no es multiplo de quince si el reloj avanza entre las dos (V10).
@@ -152,7 +152,7 @@ class PlanDeTratamientoIntegrationTest {
                 .tratamiento(tratamientoRepository.findById(ortodonciaId).orElseThrow())
                 .inicio(inicio)
                 .fin(inicio.plusMinutes(30))
-                .estado("ATENDIDA")
+                .estado("NO_ASISTIO")
                 .build()).getId();
     }
 
@@ -436,8 +436,8 @@ class PlanDeTratamientoIntegrationTest {
 
     @Test
     void listar_noTraeAvance() throws Exception {
-        // RN-14 lo deriva de las citas atendidas enlazadas, y eso es HU-18: un
-        // campo aqui prometeria un dato que todavia no significa nada.
+        // El avance se cuenta sobre las sesiones cada vez que se pregunta: un campo
+        // que lo resumiera seria un dato mas que mantener de acuerdo con ellas.
         crearPlanDeLuis(ortodonciaId, 6);
 
         mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders

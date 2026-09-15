@@ -10,10 +10,12 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import pe.edu.dentalcite.publico.api.dto.CalendarioPublicoDTO;
 import pe.edu.dentalcite.publico.api.dto.EspecialidadDetalleDTO;
 import pe.edu.dentalcite.publico.api.dto.EspecialidadPublicaDTO;
 import pe.edu.dentalcite.publico.api.dto.OdontologoPublicoDTO;
 import pe.edu.dentalcite.publico.api.dto.TratamientoPublicoDTO;
+import pe.edu.dentalcite.publico.service.CalendarioPublicoService;
 import pe.edu.dentalcite.publico.service.CatalogoPublicoService;
 
 import java.util.List;
@@ -42,6 +44,23 @@ import java.util.UUID;
 public class PublicoController {
 
     private final CatalogoPublicoService catalogoPublicoService;
+    private final CalendarioPublicoService calendarioPublicoService;
+
+    @Operation(summary = "Dias en que la clinica atiende",
+            description = "Publico, sin token. Los dias de la semana en que atiende alguien (1 = lunes,"
+                    + " 7 = domingo), los feriados, y los dias de cada odontologo por separado. Lo consume el"
+                    + " calendario del cliente para pintar cerrados los dias que no se pueden elegir: sin este"
+                    + " dato ofrecia domingos y feriados que la consulta de disponibilidad descarta despues,"
+                    + " sin explicar por que. Viaja entero porque el calendario se estrecha al elegir"
+                    + " odontologo y una consulta por cambio seria un viaje por clic.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Dias de atencion, feriados y el desglose por odontologo"),
+            @ApiResponse(responseCode = "401", description = "Se envio una cabecera Authorization con un token invalido. Sin cabecera, la ruta responde 200")
+    })
+    @GetMapping("/calendario")
+    public ResponseEntity<CalendarioPublicoDTO> calendario() {
+        return ResponseEntity.ok(calendarioPublicoService.consultar());
+    }
 
     @Operation(summary = "Tratamientos que ofrece la clinica",
             description = "HU-06 · Publico, sin token. Los tratamientos activos, que son los que anuncia la portada.")

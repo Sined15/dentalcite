@@ -14,4 +14,12 @@ public interface FeriadoRepository extends JpaRepository<Feriado, UUID> {
      * disponibilidad los pide una sola vez por consulta y no una vez por día.
      */
     List<Feriado> findByFechaBetween(LocalDate desde, LocalDate hasta);
+
+    /**
+     * Todos, en orden. Lo consume el calendario publico: son los feriados
+     * nacionales de un pais, unas decenas de filas, y acotarlos por rango
+     * obligaria al cliente a volver a preguntar cada vez que el usuario cambia
+     * de mes en el calendario.
+     */
+    List<Feriado> findAllByOrderByFechaAsc();
 }

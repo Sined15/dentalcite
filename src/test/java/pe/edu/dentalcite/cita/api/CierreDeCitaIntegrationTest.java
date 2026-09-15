@@ -37,6 +37,9 @@ import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 
+import static org.hamcrest.Matchers.containsInRelativeOrder;
+import static org.hamcrest.Matchers.hasItem;
+import static org.hamcrest.Matchers.not;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
@@ -332,20 +335,30 @@ class CierreDeCitaIntegrationTest {
     // Criterio 4 · el listado de pendientes de cierre (RF-22)
     // ------------------------------------------------------------------
 
+    /**
+     * Recepción ve la cola de toda la clínica, así que estas comprobaciones se
+     * hacen sobre los códigos que la prueba siembra y no sobre el total: la
+     * semilla de demostración deja una cita pendiente de cerrar, y contar filas
+     * ataría el criterio de esta historia a cuántas traiga la semilla.
+     */
     @Test
     void pendientesDeCierre_traeLasConfirmadasQueYaTerminaron() throws Exception {
         Cita vencida = sembrar(luisId, 3, Cita.ESTADO_CONFIRMADA);
-        sembrar(luisId, -5, Cita.ESTADO_CONFIRMADA);          // todavía no ha pasado
-        sembrar(luisId, 6, Cita.ESTADO_CANCELADA);            // ya tiene desenlace
-        sembrar(luisId, 9, Cita.ESTADO_ATENDIDA);             // ya tiene resultado
+        Cita porVenir = sembrar(luisId, -5, Cita.ESTADO_CONFIRMADA);   // todavía no ha pasado
+        Cita cancelada = sembrar(luisId, 6, Cita.ESTADO_CANCELADA);    // ya tiene desenlace
+        Cita atendida = sembrar(luisId, 9, Cita.ESTADO_ATENDIDA);      // ya tiene resultado
 
         pendientes(recepcionistaId, "SCOPE_RECEPCIONISTA")
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.totalElements").value(1))
-                .andExpect(jsonPath("$.content[0].codigo").value(vencida.getCodigo()))
-                .andExpect(jsonPath("$.content[0].estado").value("CONFIRMADA"))
-                .andExpect(jsonPath("$.content[0].paciente.numeroHistoria")
-                        .value(fichaPaciente.getNumeroHistoria()));
+                .andExpect(jsonPath("$.content[*].codigo", hasItem(vencida.getCodigo())))
+                .andExpect(jsonPath("$.content[*].codigo", not(hasItem(porVenir.getCodigo()))))
+                .andExpect(jsonPath("$.content[*].codigo", not(hasItem(cancelada.getCodigo()))))
+                .andExpect(jsonPath("$.content[*].codigo", not(hasItem(atendida.getCodigo()))))
+                .andExpect(jsonPath("$.content[?(@.codigo == '" + vencida.getCodigo() + "')].estado")
+                        .value(hasItem("CONFIRMADA")))
+                .andExpect(jsonPath("$.content[?(@.codigo == '" + vencida.getCodigo()
+                        + "')].paciente.numeroHistoria")
+                        .value(hasItem(fichaPaciente.getNumeroHistoria())));
     }
 
     @Test
@@ -355,13 +368,13 @@ class CierreDeCitaIntegrationTest {
         Cita cita = sembrar(luisId, 3, Cita.ESTADO_CONFIRMADA);
 
         pendientes(recepcionistaId, "SCOPE_RECEPCIONISTA")
-                .andExpect(jsonPath("$.totalElements").value(1));
+                .andExpect(jsonPath("$.content[*].codigo", hasItem(cita.getCodigo())));
 
         registrar(cita.getId(), "ATENDIDA", recepcionistaId, "SCOPE_RECEPCIONISTA")
                 .andExpect(status().isOk());
 
         pendientes(recepcionistaId, "SCOPE_RECEPCIONISTA")
-                .andExpect(jsonPath("$.totalElements").value(0));
+                .andExpect(jsonPath("$.content[*].codigo", not(hasItem(cita.getCodigo()))));
     }
 
     @Test
@@ -382,12 +395,15 @@ class CierreDeCitaIntegrationTest {
 
     @Test
     void pendientesDeCierre_recepcionVeLasDeTodos() throws Exception {
-        sembrar(luisId, 3, Cita.ESTADO_CONFIRMADA);
-        sembrar(anaId, 4, Cita.ESTADO_CONFIRMADA);
+        // Lo que distingue a recepción del odontólogo es que ve las de los dos,
+        // no cuántas hay: el odontólogo solo alcanzaría una de estas.
+        Cita deLuis = sembrar(luisId, 3, Cita.ESTADO_CONFIRMADA);
+        Cita deAna = sembrar(anaId, 4, Cita.ESTADO_CONFIRMADA);
 
         pendientes(recepcionistaId, "SCOPE_RECEPCIONISTA")
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.totalElements").value(2));
+                .andExpect(jsonPath("$.content[*].codigo", hasItem(deLuis.getCodigo())))
+                .andExpect(jsonPath("$.content[*].codigo", hasItem(deAna.getCodigo())));
     }
 
     @Test
@@ -396,10 +412,13 @@ class CierreDeCitaIntegrationTest {
         Cita antigua = sembrar(luisId, 30, Cita.ESTADO_CONFIRMADA);
         Cita reciente = sembrar(luisId, 2, Cita.ESTADO_CONFIRMADA);
 
+        // Una detrás de la otra, no en las posiciones 0 y 1: entre ambas puede
+        // colarse la pendiente que trae la semilla, y el orden es lo que se
+        // comprueba, no el sitio exacto que ocupan.
         pendientes(recepcionistaId, "SCOPE_RECEPCIONISTA")
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.content[0].codigo").value(antigua.getCodigo()))
-                .andExpect(jsonPath("$.content[1].codigo").value(reciente.getCodigo()));
+                .andExpect(jsonPath("$.content[*].codigo",
+                        containsInRelativeOrder(antigua.getCodigo(), reciente.getCodigo())));
     }
 
     @Test

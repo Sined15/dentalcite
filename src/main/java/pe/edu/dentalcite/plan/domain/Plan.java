@@ -8,13 +8,16 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
+import pe.edu.dentalcite.cita.domain.Cita;
 import pe.edu.dentalcite.ficha.domain.Ficha;
 import pe.edu.dentalcite.odontologo.domain.Odontologo;
 import pe.edu.dentalcite.tratamiento.domain.Tratamiento;
 
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -24,8 +27,8 @@ import java.util.UUID;
  * <p><strong>No guarda el avance.</strong> RN-14 lo dice sin margen: «el avance
  * de un plan se deriva siempre de las citas atendidas enlazadas a él; nunca se
  * persiste ni se edita a mano». Aquí solo están las sesiones <em>previstas</em>,
- * que es el compromiso que se le explica al paciente; cuántas se han cumplido lo
- * calculará HU-18 recorriendo {@link PlanSesion}.
+ * que es el compromiso que se le explica al paciente; cuántas se han cumplido se
+ * cuenta recorriendo {@link PlanSesion} cada vez que se pregunta.
  *
  * <p><strong>No se borra.</strong> RN-12: «en pacientes y planes la baja lógica
  * es una marca de actividad». Suspender baja {@link #activo} y conserva la fila
@@ -123,5 +126,43 @@ public class Plan {
     public void suspender(String motivo) {
         this.activo = false;
         this.motivoSuspension = motivo;
+    }
+
+    /**
+     * La sesión que ocuparía la próxima cita atendida: la pendiente de número más
+     * bajo. Se ordena aquí y no se confía en el orden de la colección, que solo
+     * lo garantiza la carga desde la base.
+     */
+    public Optional<PlanSesion> primeraSesionPendiente() {
+        return sesiones.stream()
+                .filter(PlanSesion::estaPendiente)
+                .min(Comparator.comparing(PlanSesion::getNumero));
+    }
+
+    /** Todas sus sesiones tienen ya una cita: no admite ninguna más. */
+    public boolean estaCompleto() {
+        return primeraSesionPendiente().isEmpty();
+    }
+
+    /**
+     * Ocupa sesiones con citas que ya estaban atendidas cuando se creó el plan,
+     * en el orden en que llegan, y devuelve cuántas ha enlazado.
+     *
+     * <p>Deja siempre una sesión pendiente aunque sobren citas: un plan recién
+     * creado que naciera terminado no le diría al paciente nada que no supiera
+     * ya, y no admitiría la siguiente consulta. Si sobran, se quedan fuera las
+     * más recientes, porque las citas llegan de la más antigua a la más nueva.
+     */
+    public int enlazarRetroactivas(List<Cita> atendidasEnOrden) {
+        long margen = sesiones.stream().filter(PlanSesion::estaPendiente).count() - 1;
+        int enlazadas = 0;
+        for (Cita cita : atendidasEnOrden) {
+            if (enlazadas >= margen) {
+                break;
+            }
+            primeraSesionPendiente().orElseThrow().enlazar(cita);
+            enlazadas++;
+        }
+        return enlazadas;
     }
 }

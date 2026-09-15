@@ -97,6 +97,18 @@ class FichaDePacienteIntegrationTest {
                 .andExpect(status().isNotFound());
     }
 
+    /**
+     * La ficha del odontólogo existe —vincula su cuenta con su registro— pero como
+     * paciente no. Decirlo aquí, y no solo en la búsqueda, es lo que impide
+     * alcanzarla escribiendo la URL cuando el listado ha dejado de ofrecerla.
+     */
+    @Test
+    @WithMockUser(authorities = "SCOPE_RECEPCIONISTA")
+    void obtenerFicha_deUnOdontologo_devuelve404() throws Exception {
+        mockMvc.perform(get("/api/v1/pacientes/" + escenario.fichaOdontologoPropio.getId()))
+                .andExpect(status().isNotFound());
+    }
+
     @Test
     void obtenerFicha_comoElOdontologoQueLoAtendio_devuelve200() throws Exception {
         mockMvc.perform(get(ficha())

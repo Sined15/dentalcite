@@ -1,7 +1,11 @@
 package pe.edu.dentalcite.plan.repository;
 
+import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import pe.edu.dentalcite.plan.domain.Plan;
 
 import java.util.List;
@@ -19,12 +23,35 @@ public interface PlanRepository extends JpaRepository<Plan, UUID> {
      * paginación —por eso esto devuelve una {@code List} y no una {@code Page}—.
      * Un plan tiene unas pocas sesiones y un paciente unos pocos planes, de modo
      * que aquí no hay nada que paginar; la alternativa, dejarlas perezosas,
-     * costaría una consulta por plan al pintar la ficha.
+     * costaría una consulta por plan al pintar la ficha. La cita de cada sesión va
+     * en el mismo grafo por la misma razón: sin ella serían una consulta por
+     * sesión ocupada.
      */
-    @EntityGraph(attributePaths = {"tratamiento", "odontologo", "sesiones"})
+    @EntityGraph(attributePaths = {"tratamiento", "odontologo", "sesiones", "sesiones.cita"})
     List<Plan> findByFichaIdOrderByCreadoEnDesc(UUID fichaId);
 
     /** Un plan con sus asociaciones ya resueltas, para responder tras crearlo o suspenderlo. */
-    @EntityGraph(attributePaths = {"ficha", "tratamiento", "odontologo", "sesiones"})
+    @EntityGraph(attributePaths = {"ficha", "tratamiento", "odontologo", "sesiones", "sesiones.cita"})
     Optional<Plan> findConDetalleById(UUID id);
+
+    /**
+     * El plan activo de un paciente para un tratamiento, con su fila bloqueada
+     * para escribir en él. Como mucho hay uno, porque la base no admite dos
+     * activos del mismo tratamiento para la misma ficha.
+     *
+     * <p>El bloqueo es la razón de ser de este método, no un detalle: ver
+     * {@code EnlaceDeSesiones}. No lleva grafo de entidades porque PostgreSQL no
+     * admite {@code FOR UPDATE} sobre el lado opcional de un JOIN externo. Las
+     * sesiones se cargan después, con la fila ya bloqueada, y por eso ven lo que
+     * confirmó quien tenía el bloqueo antes.
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+            SELECT p FROM Plan p
+            WHERE p.ficha.id = :fichaId
+              AND p.tratamiento.id = :tratamientoId
+              AND p.activo = true
+            """)
+    Optional<Plan> findActivoParaEnlazar(@Param("fichaId") UUID fichaId,
+            @Param("tratamientoId") UUID tratamientoId);
 }

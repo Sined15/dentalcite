@@ -25,6 +25,7 @@ import pe.edu.dentalcite.tratamiento.repository.TratamientoRepository;
 import pe.edu.dentalcite.usuario.domain.Usuario;
 import pe.edu.dentalcite.usuario.repository.UsuarioRepository;
 
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.UUID;
 
@@ -87,6 +88,9 @@ public class PlanService {
      */
     private final PacienteAccessGuard accessGuard;
 
+    /** Las citas que el paciente ya tenía atendidas ocupan sesiones desde el primer día. */
+    private final EnlaceDeSesiones enlaceDeSesiones;
+
     /**
      * Criterio 1: «quedará ACTIVO con sus sesiones numeradas y todas pendientes».
      */
@@ -131,6 +135,11 @@ public class PlanService {
             }
             throw e;
         }
+
+        // Después del flush y no antes: si el índice rechaza el plan, no hay nada
+        // que enlazar. Las sesiones que ocupe se guardan al confirmar la
+        // transacción, con el plan ya en la base.
+        enlaceDeSesiones.enlazarRetroactivas(plan, OffsetDateTime.now());
 
         log.info("Plan {} creado con {} sesiones", plan.getId(), plan.getSesionesPrevistas());
         return mapear(plan);
@@ -328,7 +337,13 @@ public class PlanService {
 
     private static PlanResponseDTO.Sesion sesion(PlanSesion s) {
         return PlanResponseDTO.Sesion.builder()
-                .id(s.getId()).numero(s.getNumero()).estado(s.getEstado()).build();
+                .id(s.getId()).numero(s.getNumero()).estado(s.getEstado())
+                .cita(s.getCita() == null ? null : PlanResponseDTO.CitaEnlazada.builder()
+                        .id(s.getCita().getId())
+                        .codigo(s.getCita().getCodigo())
+                        .inicio(s.getCita().getInicio())
+                        .build())
+                .build();
     }
 
     private static PlanResponseDTO.Referencia referencia(UUID id, String nombre) {
