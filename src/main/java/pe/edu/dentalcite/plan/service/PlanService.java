@@ -1,7 +1,7 @@
 package pe.edu.dentalcite.plan.service;
 
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
@@ -15,18 +15,24 @@ import pe.edu.dentalcite.ficha.repository.FichaRepository;
 import pe.edu.dentalcite.odontologo.domain.Odontologo;
 import pe.edu.dentalcite.odontologo.repository.OdontologoRepository;
 import pe.edu.dentalcite.paciente.service.PacienteAccessGuard;
+import pe.edu.dentalcite.plan.api.dto.CierreSesionRequestDTO;
 import pe.edu.dentalcite.plan.api.dto.PlanRequestDTO;
 import pe.edu.dentalcite.plan.api.dto.PlanResponseDTO;
 import pe.edu.dentalcite.plan.domain.Plan;
 import pe.edu.dentalcite.plan.domain.PlanSesion;
 import pe.edu.dentalcite.plan.repository.PlanRepository;
+import pe.edu.dentalcite.recomendacion.domain.Recomendacion;
+import pe.edu.dentalcite.recomendacion.service.RecomendacionService;
 import pe.edu.dentalcite.tratamiento.domain.Tratamiento;
 import pe.edu.dentalcite.tratamiento.repository.TratamientoRepository;
 import pe.edu.dentalcite.usuario.domain.Usuario;
 import pe.edu.dentalcite.usuario.repository.UsuarioRepository;
 
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
+import java.time.ZoneId;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -67,7 +73,6 @@ import java.util.UUID;
  */
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class PlanService {
 
     private static final String ODONTOLOGO = "SCOPE_ODONTOLOGO";
@@ -90,6 +95,32 @@ public class PlanService {
 
     /** Las citas que el paciente ya tenía atendidas ocupan sesiones desde el primer día. */
     private final EnlaceDeSesiones enlaceDeSesiones;
+
+    /** El catálogo cerrado del que salen los cuidados que se indican al cerrar una sesión. */
+    private final RecomendacionService recomendacionService;
+
+    /**
+     * La zona de la clínica. La necesita el cierre de sesión para saber qué día es
+     * hoy: la fecha del próximo control se compara con el calendario de quien la
+     * escribe, no con el del servidor.
+     */
+    private final ZoneId zona;
+
+    public PlanService(PlanRepository planRepository, FichaRepository fichaRepository,
+            TratamientoRepository tratamientoRepository, OdontologoRepository odontologoRepository,
+            UsuarioRepository usuarioRepository, PacienteAccessGuard accessGuard,
+            EnlaceDeSesiones enlaceDeSesiones, RecomendacionService recomendacionService,
+            @Value("${app.zona-horaria:America/Lima}") String zonaHoraria) {
+        this.planRepository = planRepository;
+        this.fichaRepository = fichaRepository;
+        this.tratamientoRepository = tratamientoRepository;
+        this.odontologoRepository = odontologoRepository;
+        this.usuarioRepository = usuarioRepository;
+        this.accessGuard = accessGuard;
+        this.enlaceDeSesiones = enlaceDeSesiones;
+        this.recomendacionService = recomendacionService;
+        this.zona = ZoneId.of(zonaHoraria);
+    }
 
     /**
      * Criterio 1: «quedará ACTIVO con sus sesiones numeradas y todas pendientes».
@@ -168,6 +199,71 @@ public class PlanService {
 
         log.info("Plan {} suspendido", plan.getId());
         return mapear(plan);
+    }
+
+    /**
+     * Registra lo que el paciente debe hacer hasta la siguiente sesión y la da por
+     * cerrada.
+     *
+     * <h2>El orden de las comprobaciones</h2>
+     *
+     * 404 del plan o de la sesión → 403 de la autoría → 409 del estado → 400 de lo
+     * que trae el cuerpo. El 403 va antes del estado por lo mismo que en el cierre
+     * de la cita: decir «esa sesión ya está cerrada» sobre el plan de otro
+     * profesional sería contar de rebote en qué punto va un tratamiento ajeno. Y lo
+     * que trae el cuerpo se mira al final porque comprobarlo antes gastaría una
+     * consulta al catálogo para acabar en el mismo 403, y respondería que las
+     * recomendaciones son inválidas cuando el problema es que esa sesión no se
+     * puede cerrar.
+     *
+     * <p>El plan se carga con su fila bloqueada: dos cierres simultáneos de la misma
+     * sesión se serializan, y el segundo la encuentra ya cerrada en vez de sustituir
+     * en silencio las recomendaciones del primero.
+     *
+     * <p>Un plan suspendido sí admite cerrar una sesión atendida: las recomendaciones
+     * son los cuidados de una consulta que ya ocurrió, y suspender el plan no deshace
+     * lo que se hizo en ella.
+     */
+    @Transactional
+    public PlanResponseDTO cerrarSesion(UUID planId, int numero, CierreSesionRequestDTO peticion) {
+        Plan plan = planRepository.findParaCerrarSesion(planId)
+                .orElseThrow(() -> new ResourceNotFoundException("Plan no encontrado"));
+
+        PlanSesion sesion = plan.getSesiones().stream()
+                .filter(s -> Integer.valueOf(numero).equals(s.getNumero()))
+                .findFirst()
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "El plan no tiene una sesion " + numero));
+
+        verificarQuePuedeOperarSobre(plan.getOdontologo());
+        sesion.verificarQueSePuedeCerrar();
+
+        LocalDate hoy = LocalDate.now(zona);
+        if (peticion.getProximoControl().isBefore(hoy)) {
+            throw new IllegalArgumentException(
+                    "La fecha sugerida del proximo control no puede ser anterior a hoy.");
+        }
+
+        Set<Recomendacion> indicadas = recomendacionService
+                .resolverVigentes(peticion.getRecomendacionIds());
+
+        sesion.cerrar(indicadas, peticion.getProximoControl(), sinEspacios(peticion.getObservacion()));
+        planRepository.save(plan);
+
+        log.info("Sesion {} del plan {} cerrada con {} recomendaciones",
+                numero, plan.getId(), indicadas.size());
+        return mapear(plan);
+    }
+
+    /**
+     * Una observación en blanco es no haber escrito ninguna, y así se guarda: dejar
+     * la cadena vacía haría que el cliente pintara un apartado sin nada dentro.
+     */
+    private static String sinEspacios(String observacion) {
+        if (observacion == null || observacion.isBlank()) {
+            return null;
+        }
+        return observacion.trim();
     }
 
     /**
@@ -343,6 +439,11 @@ public class PlanService {
                         .codigo(s.getCita().getCodigo())
                         .inicio(s.getCita().getInicio())
                         .build())
+                .recomendaciones(s.getRecomendaciones().stream()
+                        .map(RecomendacionService::mapear)
+                        .toList())
+                .proximoControl(s.getProximoControl())
+                .observacion(s.getObservacion())
                 .build();
     }
 

@@ -4,7 +4,9 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import pe.edu.dentalcite.recomendacion.api.dto.RecomendacionDTO;
 
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.UUID;
@@ -55,6 +57,19 @@ public class PlanResponseDTO {
         private String estado;
         /** La cita atendida que la ocupa; nula mientras la sesión está pendiente. */
         private CitaEnlazada cita;
+
+        /**
+         * Los cuidados indicados al cerrarla. Vacía mientras no se ha cerrado, y
+         * nunca nula: una lista ausente y una vacía se pintan igual, y quien la
+         * recorre no tiene que distinguirlas.
+         */
+        private List<RecomendacionDTO> recomendaciones;
+
+        /** La fecha sugerida del próximo control; nula hasta que la sesión se cierra. */
+        private LocalDate proximoControl;
+
+        /** El cuidado escrito a mano, si lo hubo. */
+        private String observacion;
     }
 
     @Data

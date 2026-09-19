@@ -2,6 +2,7 @@ package pe.edu.dentalcite.bloqueo.api;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -17,6 +18,7 @@ import org.springframework.web.context.WebApplicationContext;
 import pe.edu.dentalcite.TestcontainersConfiguration;
 import pe.edu.dentalcite.bloqueo.api.dto.BloqueoRequest;
 import pe.edu.dentalcite.bloqueo.api.dto.BloqueoResponseDTO;
+import pe.edu.dentalcite.bloqueo.repository.BloqueoRepository;
 import pe.edu.dentalcite.consultorio.domain.Consultorio;
 import pe.edu.dentalcite.consultorio.repository.ConsultorioRepository;
 import pe.edu.dentalcite.odontologo.repository.OdontologoRepository;
@@ -61,7 +63,13 @@ class BloqueoControllerIntegrationTest {
     @Autowired
     private OdontologoRepository odontologoRepository;
 
+    @Autowired
+    private BloqueoRepository bloqueoRepository;
+
     private ObjectMapper objectMapper;
+
+    /** El consultorio de esta clase. Ver {@link #consultorioDePrueba()}. */
+    private Consultorio consultorio;
 
     @BeforeEach
     void setUp() {
@@ -71,10 +79,37 @@ class BloqueoControllerIntegrationTest {
                 .build();
         objectMapper = new ObjectMapper();
         objectMapper.registerModule(new JavaTimeModule());
+
+        consultorio = consultorioRepository.save(Consultorio.builder()
+                .id(UUID.randomUUID())
+                .nombre("Sala de bloqueos " + UUID.randomUUID().toString().substring(0, 8))
+                .inoperativo(false)
+                .build());
     }
 
-    private Consultorio primerConsultorio() {
-        return consultorioRepository.findAll().get(0);
+    @AfterEach
+    void tearDown() {
+        // Los bloqueos antes que el consultorio: su clave ajena no deja borrar el
+        // que todavia apuntan. Y hay que borrarlos a mano porque esta clase no es
+        // @Transactional a proposito (ver arriba), asi que nada se deshace solo.
+        bloqueoRepository.findAll().stream()
+                .filter(b -> b.getConsultorio() != null
+                        && consultorio.getId().equals(b.getConsultorio().getId()))
+                .forEach(bloqueoRepository::delete);
+        consultorioRepository.deleteById(consultorio.getId());
+    }
+
+    /**
+     * Un consultorio propio, y no el primero que haya en la base.
+     *
+     * <p>Estas pruebas bloquean la ventana de manana y pasado, y la agenda de
+     * demostracion siembra citas confirmadas en «Consultorio 1» justo ahi: bloquear
+     * un consultorio con citas activas en el rango se rechaza con 409, de modo que
+     * tomar el primero hacia que el resultado dependiera del calendario. Es la misma
+     * leccion que ya aprendio {@code CitasActivasIntegrationTest} con esa semilla.
+     */
+    private Consultorio consultorioDePrueba() {
+        return consultorio;
     }
 
     private BloqueoRequest bloqueoDeConsultorio(UUID consultorioId, String motivo) {
@@ -113,7 +148,7 @@ class BloqueoControllerIntegrationTest {
     @WithMockUser(authorities = "SCOPE_RECEPCIONISTA")
     void crearBloqueoDeConsultorio_conRolRecepcionista_retorna201() throws Exception {
         // HU-07: «Dado un consultorio fuera de servicio, cuando registre su bloqueo…»
-        UUID consultorioId = primerConsultorio().getId();
+        UUID consultorioId = consultorioDePrueba().getId();
 
         mockMvc.perform(post("/api/v1/bloqueos")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -126,7 +161,7 @@ class BloqueoControllerIntegrationTest {
     @Test
     @WithMockUser(authorities = "SCOPE_ODONTOLOGO")
     void crearBloqueoDeConsultorio_conRolOdontologo_retorna403() throws Exception {
-        UUID consultorioId = primerConsultorio().getId();
+        UUID consultorioId = consultorioDePrueba().getId();
 
         mockMvc.perform(post("/api/v1/bloqueos")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -143,7 +178,7 @@ class BloqueoControllerIntegrationTest {
         UUID usuarioId = usuarioRepository.findByCorreo("dr.perez@dentalcite.com").orElseThrow().getId();
         UUID odontologoId = odontologoRepository.findByCop("COP-10001").orElseThrow().getId();
 
-        BloqueoRequest req = bloqueoDeConsultorio(primerConsultorio().getId(), "Me llevo el consultorio");
+        BloqueoRequest req = bloqueoDeConsultorio(consultorioDePrueba().getId(), "Me llevo el consultorio");
         req.setOdontologoId(odontologoId);
 
         mockMvc.perform(post("/api/v1/bloqueos")
@@ -202,7 +237,7 @@ class BloqueoControllerIntegrationTest {
         // HU-07: «cuando lo registre, entonces quedará aplicado y consultable sobre
         // el odontólogo o el consultorio indicado». Los tres verbos serializan la
         // respuesta, que es donde reventaba al devolver la entidad.
-        Consultorio consultorio = primerConsultorio();
+        Consultorio consultorio = consultorioDePrueba();
         String motivo = "Mantenimiento " + UUID.randomUUID().toString().substring(0, 8);
 
         String creado = mockMvc.perform(post("/api/v1/bloqueos")

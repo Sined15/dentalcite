@@ -451,12 +451,39 @@ class PlanDeTratamientoIntegrationTest {
     }
 
     @Test
-    void listar_comoPaciente_retornaForbidden() throws Exception {
+    void listar_comoPacienteSobreSuPropiaFicha_devuelveSusPlanes() throws Exception {
+        // El paciente lee lo suyo desde que las recomendaciones tienen que quedarle
+        // visibles: antes esta ruta le respondia 403 sin excepcion.
+        crearPlanDeLuis(ortodonciaId, 6);
+
         mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
                         .get(RUTA)
                         .with(user(pacienteUsuarioId.toString())
                                 .authorities(new SimpleGrantedAuthority("SCOPE_PACIENTE")))
                         .param("pacienteId", fichaPaciente.getId().toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1));
+    }
+
+    @Test
+    void listar_comoPacienteSobreLaFichaDeOtro_retornaForbidden() throws Exception {
+        // Abrir la lectura no la abre sobre cualquiera: el guard solo le concede la
+        // propia, y eso no hubo que escribirlo aparte.
+        crearPlanDeLuis(ortodonciaId, 6);
+
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                        .get(RUTA)
+                        .with(user(pacienteUsuarioId.toString())
+                                .authorities(new SimpleGrantedAuthority("SCOPE_PACIENTE")))
+                        .param("pacienteId", fichaAna.getId().toString()))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void crear_comoPacienteSobreSuPropiaFicha_sigueRetornandoForbidden() throws Exception {
+        // La escritura sigue siendo del personal: el comodin de la ruta va detras
+        // de la lectura, no delante.
+        crear(peticion(ortodonciaId, 3), pacienteUsuarioId, "SCOPE_PACIENTE")
                 .andExpect(status().isForbidden());
     }
 

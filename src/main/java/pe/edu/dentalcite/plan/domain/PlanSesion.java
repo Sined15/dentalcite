@@ -9,8 +9,12 @@ import lombok.Setter;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
 import pe.edu.dentalcite.cita.domain.Cita;
+import pe.edu.dentalcite.recomendacion.domain.Recomendacion;
 
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
+import java.util.LinkedHashSet;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -73,6 +77,34 @@ public class PlanSesion {
     @JoinColumn(name = "cita_id", unique = true)
     private Cita cita;
 
+    /**
+     * Los cuidados que se le indicaron al paciente al terminar la sesión. Son filas
+     * y no un texto libre porque se eligen de un catálogo cerrado, y una sesión
+     * puede llevar varios.
+     *
+     * <p>Un {@code Set} y no una lista: las sesiones de {@link Plan} ya son una
+     * bolsa, y dos bolsas en el mismo grafo de entidades Hibernate no las resuelve
+     * de una sola consulta.
+     */
+    @ManyToMany(fetch = FetchType.LAZY)
+    @JoinTable(name = "plan_sesion_recomendaciones",
+            joinColumns = @JoinColumn(name = "sesion_id"),
+            inverseJoinColumns = @JoinColumn(name = "recomendacion_id"))
+    @OrderBy("descripcion ASC")
+    @Builder.Default
+    private Set<Recomendacion> recomendaciones = new LinkedHashSet<>();
+
+    /**
+     * Cuándo se sugiere volver. Nula mientras la sesión no está cerrada, y la base
+     * exige que esté en cuanto lo está.
+     */
+    @Column(name = "proximo_control")
+    private LocalDate proximoControl;
+
+    /** Un cuidado escrito a mano, si lo hubo. No es una indicación clínica. */
+    @Column(length = 300)
+    private String observacion;
+
     @CreationTimestamp
     @Column(name = "creado_en", updatable = false)
     private OffsetDateTime creadoEn;
@@ -99,5 +131,47 @@ public class PlanSesion {
         }
         this.cita = citaAtendida;
         this.estado = ESTADO_ATENDIDA;
+    }
+
+    /** La ocupa una cita atendida y todavía no se ha dicho qué cuidados seguir. */
+    public boolean estaAtendida() {
+        return ESTADO_ATENDIDA.equals(estado);
+    }
+
+    /**
+     * Falla si la sesión no está en condiciones de cerrarse, y con el motivo que
+     * corresponda.
+     *
+     * <p>Es público y separado de {@link #cerrar} porque quien atiende la petición
+     * tiene que dar ese veredicto <em>antes</em> de mirar el catálogo: así una
+     * sesión que no se puede cerrar responde eso, y no que sus recomendaciones son
+     * inválidas.
+     */
+    public void verificarQueSePuedeCerrar() {
+        if (estaPendiente()) {
+            throw new IllegalStateException(
+                    "La sesion " + numero + " todavia no tiene una cita atendida.");
+        }
+        if (!estaAtendida()) {
+            throw new IllegalStateException("La sesion " + numero + " ya se cerro.");
+        }
+    }
+
+    /**
+     * Registra lo que el odontólogo indica al terminar la sesión y la da por
+     * cerrada.
+     *
+     * <p>Solo se cierra lo que se ha atendido, y los dos rechazos son distintos a
+     * propósito: una sesión pendiente no tiene ninguna consulta de la que hablar, y
+     * una ya cerrada tiene sus recomendaciones dadas —cerrarla otra vez las
+     * sustituiría en silencio, que es lo mismo que {@link #enlazar} impide con la
+     * cita—.
+     */
+    public void cerrar(Set<Recomendacion> indicadas, LocalDate proximoControl, String observacion) {
+        verificarQueSePuedeCerrar();
+        this.recomendaciones = new LinkedHashSet<>(indicadas);
+        this.proximoControl = proximoControl;
+        this.observacion = observacion;
+        this.estado = ESTADO_CERRADA;
     }
 }

@@ -2,9 +2,12 @@ package pe.edu.dentalcite.plan.domain;
 
 import org.junit.jupiter.api.Test;
 import pe.edu.dentalcite.cita.domain.Cita;
+import pe.edu.dentalcite.recomendacion.domain.Recomendacion;
 
+import java.time.LocalDate;
 import java.util.Collections;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -131,6 +134,76 @@ class PlanTest {
 
         assertThrows(IllegalStateException.class, () -> sesion.enlazar(atendida("B")));
         assertSame(primera, sesion.getCita());
+    }
+
+    // ------------------------------------------------------------------
+    // El cierre de la sesión
+    // ------------------------------------------------------------------
+
+    private static Recomendacion cuidado(String descripcion) {
+        return Recomendacion.builder().id(UUID.randomUUID()).descripcion(descripcion).activa(true).build();
+    }
+
+    /** Una sesión con su cita atendida: la única que se puede cerrar. */
+    private static PlanSesion sesionAtendida() {
+        PlanSesion sesion = planDe(1).getSesiones().get(0);
+        sesion.enlazar(atendida("CIT-1"));
+        return sesion;
+    }
+
+    @Test
+    void cerrar_unaSesionAtendida_laDejaCerradaConLoQueSeIndico() {
+        PlanSesion sesion = sesionAtendida();
+        Recomendacion dieta = cuidado("Dieta blanda");
+        LocalDate control = LocalDate.of(2026, 10, 1);
+
+        sesion.cerrar(Set.of(dieta), control, "Volver antes si hay dolor");
+
+        assertEquals(PlanSesion.ESTADO_CERRADA, sesion.getEstado());
+        assertEquals(Set.of(dieta), sesion.getRecomendaciones());
+        assertEquals(control, sesion.getProximoControl());
+        assertEquals("Volver antes si hay dolor", sesion.getObservacion());
+        // La cita que la ocupaba sigue siendo la suya: cerrarla no la desenlaza.
+        assertEquals("CIT-1", sesion.getCita().getCodigo());
+    }
+
+    @Test
+    void cerrar_unaSesionPendiente_lanzaIllegalStateSinTocarla() {
+        PlanSesion sesion = planDe(1).getSesiones().get(0);
+
+        assertThrows(IllegalStateException.class,
+                () -> sesion.cerrar(Set.of(cuidado("Dieta blanda")), LocalDate.now(), null));
+
+        assertTrue(sesion.estaPendiente());
+        assertNull(sesion.getProximoControl());
+        assertTrue(sesion.getRecomendaciones().isEmpty());
+    }
+
+    @Test
+    void cerrar_unaSesionYaCerrada_lanzaIllegalStateSinSustituirLoIndicado() {
+        PlanSesion sesion = sesionAtendida();
+        Recomendacion primera = cuidado("Dieta blanda");
+        LocalDate control = LocalDate.of(2026, 10, 1);
+        sesion.cerrar(Set.of(primera), control, "La primera");
+
+        assertThrows(IllegalStateException.class,
+                () -> sesion.cerrar(Set.of(cuidado("Hielo en la mejilla")),
+                        LocalDate.of(2026, 11, 1), "La segunda"));
+
+        assertEquals(Set.of(primera), sesion.getRecomendaciones());
+        assertEquals(control, sesion.getProximoControl());
+        assertEquals("La primera", sesion.getObservacion());
+    }
+
+    @Test
+    void estaAtendida_soloLoEsLaQueTieneCitaYSigueSinCerrar() {
+        assertFalse(planDe(1).getSesiones().get(0).estaAtendida());
+
+        PlanSesion conCita = sesionAtendida();
+        assertTrue(conCita.estaAtendida());
+
+        conCita.cerrar(Set.of(cuidado("Dieta blanda")), LocalDate.now(), null);
+        assertFalse(conCita.estaAtendida());
     }
 
     @Test

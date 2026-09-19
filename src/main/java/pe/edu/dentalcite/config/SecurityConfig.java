@@ -145,7 +145,18 @@ public class SecurityConfig {
                 // bajo el prefijo, para que ninguna ruta nueva caiga en el
                 // anyRequest() del final. Que el odontologo solo pueda suspender
                 // lo suyo no es un patron de ruta: lo decide PlanService.
+                //
+                // El paciente consulta los planes que son suyos, y por eso la
+                // lectura va **antes** del comodin: declarada despues recibiria 403
+                // sobre lo propio, como le pasaria a /citas/mias. Que solo alcance su
+                // ficha no hace falta escribirlo aqui: PlanService.deFicha se lo
+                // pregunta a PacienteAccessGuard, que al paciente solo le concede la
+                // suya. El avance y la linea de tiempo son otra historia.
+                .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/v1/planes").hasAnyAuthority("SCOPE_PACIENTE", "SCOPE_ODONTOLOGO", "SCOPE_ADMINISTRADOR")
                 .requestMatchers("/api/v1/planes/**").hasAnyAuthority("SCOPE_ODONTOLOGO", "SCOPE_ADMINISTRADOR")
+                // El catalogo cerrado de recomendaciones lo lee quien cierra una
+                // sesion, que es el unico sitio desde donde se elige de el.
+                .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/v1/recomendaciones").hasAnyAuthority("SCOPE_ODONTOLOGO", "SCOPE_ADMINISTRADOR")
                 // HU-12: el alta presencial es de recepcion y administracion.
                 .requestMatchers(org.springframework.http.HttpMethod.POST, "/api/v1/pacientes").hasAnyAuthority("SCOPE_RECEPCIONISTA", "SCOPE_ADMINISTRADOR")
                 // HU-13 · RF-07: la busqueda es del «personal». El PACIENTE no

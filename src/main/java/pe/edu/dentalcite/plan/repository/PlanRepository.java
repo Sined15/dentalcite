@@ -27,11 +27,13 @@ public interface PlanRepository extends JpaRepository<Plan, UUID> {
      * en el mismo grafo por la misma razón: sin ella serían una consulta por
      * sesión ocupada.
      */
-    @EntityGraph(attributePaths = {"tratamiento", "odontologo", "sesiones", "sesiones.cita"})
+    @EntityGraph(attributePaths = {"tratamiento", "odontologo", "sesiones", "sesiones.cita",
+            "sesiones.recomendaciones"})
     List<Plan> findByFichaIdOrderByCreadoEnDesc(UUID fichaId);
 
     /** Un plan con sus asociaciones ya resueltas, para responder tras crearlo o suspenderlo. */
-    @EntityGraph(attributePaths = {"ficha", "tratamiento", "odontologo", "sesiones", "sesiones.cita"})
+    @EntityGraph(attributePaths = {"ficha", "tratamiento", "odontologo", "sesiones", "sesiones.cita",
+            "sesiones.recomendaciones"})
     Optional<Plan> findConDetalleById(UUID id);
 
     /**
@@ -54,4 +56,20 @@ public interface PlanRepository extends JpaRepository<Plan, UUID> {
             """)
     Optional<Plan> findActivoParaEnlazar(@Param("fichaId") UUID fichaId,
             @Param("tratamientoId") UUID tratamientoId);
+
+    /**
+     * Un plan con su fila bloqueada para cerrar una de sus sesiones.
+     *
+     * <p>El bloqueo es lo que hace que dos cierres simultáneos de la misma sesión no
+     * se pisen: el segundo espera y, al entrar, la ve ya cerrada y recibe su
+     * conflicto. Y como es la misma fila que toma {@code EnlaceDeSesiones}, un
+     * cierre de cita y un cierre de sesión tampoco se solapan.
+     *
+     * <p>Sin grafo de entidades por lo mismo que {@link #findActivoParaEnlazar}:
+     * PostgreSQL no admite {@code FOR UPDATE} sobre el lado opcional de un JOIN
+     * externo. Las sesiones se cargan después, con la fila ya bloqueada.
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT p FROM Plan p WHERE p.id = :id")
+    Optional<Plan> findParaCerrarSesion(@Param("id") UUID id);
 }

@@ -20,18 +20,25 @@ import pe.edu.dentalcite.ficha.repository.FichaRepository;
 import pe.edu.dentalcite.odontologo.domain.Odontologo;
 import pe.edu.dentalcite.odontologo.repository.OdontologoRepository;
 import pe.edu.dentalcite.paciente.service.PacienteAccessGuard;
+import pe.edu.dentalcite.plan.api.dto.CierreSesionRequestDTO;
 import pe.edu.dentalcite.plan.api.dto.PlanRequestDTO;
 import pe.edu.dentalcite.plan.api.dto.PlanResponseDTO;
 import pe.edu.dentalcite.plan.domain.Plan;
+import pe.edu.dentalcite.plan.domain.PlanSesion;
 import pe.edu.dentalcite.plan.repository.PlanRepository;
+import pe.edu.dentalcite.recomendacion.domain.Recomendacion;
+import pe.edu.dentalcite.recomendacion.service.RecomendacionService;
 import pe.edu.dentalcite.tratamiento.domain.Tratamiento;
 import pe.edu.dentalcite.tratamiento.repository.TratamientoRepository;
 import pe.edu.dentalcite.usuario.domain.Usuario;
 import pe.edu.dentalcite.usuario.repository.UsuarioRepository;
 
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -56,6 +63,9 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class PlanServiceTest {
 
+    /** La de la clínica: «hoy» se decide con su calendario, no con el del servidor. */
+    private static final ZoneId ZONA = ZoneId.of("America/Lima");
+
     @Mock private PlanRepository planRepository;
     @Mock private FichaRepository fichaRepository;
     @Mock private TratamientoRepository tratamientoRepository;
@@ -63,6 +73,7 @@ class PlanServiceTest {
     @Mock private UsuarioRepository usuarioRepository;
     @Mock private PacienteAccessGuard accessGuard;
     @Mock private EnlaceDeSesiones enlaceDeSesiones;
+    @Mock private RecomendacionService recomendacionService;
 
     private PlanService servicio;
 
@@ -75,7 +86,8 @@ class PlanServiceTest {
     @BeforeEach
     void setUp() {
         servicio = new PlanService(planRepository, fichaRepository, tratamientoRepository,
-                odontologoRepository, usuarioRepository, accessGuard, enlaceDeSesiones);
+                odontologoRepository, usuarioRepository, accessGuard, enlaceDeSesiones,
+                recomendacionService, ZONA.getId());
 
         luisUsuarioId = UUID.randomUUID();
         fichaLuis = Ficha.builder().id(UUID.randomUUID()).numeroHistoria("HC-00009").build();
@@ -348,6 +360,231 @@ class PlanServiceTest {
                 .build();
         plan.generarSesiones();
         return plan;
+    }
+
+    // ------------------------------------------------------------------
+    // El cierre de la sesión con sus recomendaciones
+    // ------------------------------------------------------------------
+
+    private Recomendacion dieta;
+
+    /** Un plan cuya primera sesión ya la ocupa una cita atendida: la que se puede cerrar. */
+    private Plan planConLaPrimeraAtendida() {
+        Plan plan = planEnCurso();
+        plan.getSesiones().get(0).enlazar(Cita.builder().id(UUID.randomUUID())
+                .codigo("CIT-000007").estado(Cita.ESTADO_ATENDIDA).build());
+        when(planRepository.findParaCerrarSesion(plan.getId())).thenReturn(Optional.of(plan));
+        return plan;
+    }
+
+    private CierreSesionRequestDTO cierre(LocalDate proximoControl, String observacion) {
+        dieta = Recomendacion.builder().id(UUID.randomUUID())
+                .descripcion("Mantener dieta blanda").activa(true).build();
+        return CierreSesionRequestDTO.builder()
+                .recomendacionIds(List.of(dieta.getId()))
+                .proximoControl(proximoControl)
+                .observacion(observacion)
+                .build();
+    }
+
+    /** El catálogo reconoce lo que se le manda. */
+    private void catalogoEnOrden() {
+        when(recomendacionService.resolverVigentes(List.of(dieta.getId())))
+                .thenReturn(Set.of(dieta));
+    }
+
+    @Test
+    void cerrarSesion_conTodoEnOrden_dejaLaSesionCerradaConLoIndicado() {
+        todoEnOrden();
+        Plan plan = planConLaPrimeraAtendida();
+        LocalDate control = LocalDate.now(ZONA).plusDays(30);
+        CierreSesionRequestDTO peticion = cierre(control, "Volver antes si hay dolor");
+        catalogoEnOrden();
+
+        PlanResponseDTO respuesta = servicio.cerrarSesion(plan.getId(), 1, peticion);
+
+        PlanResponseDTO.Sesion primera = respuesta.getSesiones().get(0);
+        assertEquals(PlanSesion.ESTADO_CERRADA, primera.getEstado());
+        assertEquals(1, primera.getRecomendaciones().size());
+        assertEquals("Mantener dieta blanda", primera.getRecomendaciones().get(0).getDescripcion());
+        assertEquals(control, primera.getProximoControl());
+        assertEquals("Volver antes si hay dolor", primera.getObservacion());
+        // La cita que la ocupaba sigue siendo la suya.
+        assertEquals("CIT-000007", primera.getCita().getCodigo());
+        // Y las demás no se han tocado.
+        assertEquals("PENDIENTE", respuesta.getSesiones().get(1).getEstado());
+    }
+
+    @Test
+    void cerrarSesion_conObservacionEnBlanco_laGuardaComoAusente() {
+        // Una observación vacía es no haber escrito ninguna: guardar la cadena haría
+        // que el cliente pintara un apartado sin nada dentro.
+        todoEnOrden();
+        Plan plan = planConLaPrimeraAtendida();
+        CierreSesionRequestDTO peticion = cierre(LocalDate.now(ZONA).plusDays(7), "   ");
+        catalogoEnOrden();
+
+        assertNull(servicio.cerrarSesion(plan.getId(), 1, peticion).getSesiones().get(0)
+                .getObservacion());
+    }
+
+    @Test
+    void cerrarSesion_conLaFechaDeHoy_seAdmite() {
+        // El límite es «no anterior a hoy»: el mismo día vale.
+        todoEnOrden();
+        Plan plan = planConLaPrimeraAtendida();
+        CierreSesionRequestDTO peticion = cierre(LocalDate.now(ZONA), null);
+        catalogoEnOrden();
+
+        assertEquals(PlanSesion.ESTADO_CERRADA,
+                servicio.cerrarSesion(plan.getId(), 1, peticion).getSesiones().get(0).getEstado());
+    }
+
+    @Test
+    void cerrarSesion_conUnaFechaAnteriorAHoy_lanzaIllegalArgument() {
+        todoEnOrden();
+        Plan plan = planConLaPrimeraAtendida();
+        CierreSesionRequestDTO peticion = cierre(LocalDate.now(ZONA).minusDays(1), null);
+
+        assertThrows(IllegalArgumentException.class,
+                () -> servicio.cerrarSesion(plan.getId(), 1, peticion));
+
+        // Y no se llega a consultar el catálogo.
+        verify(recomendacionService, never()).resolverVigentes(any());
+    }
+
+    @Test
+    void cerrarSesion_conUnaRecomendacionFueraDelCatalogo_propagaElIllegalArgument() {
+        todoEnOrden();
+        Plan plan = planConLaPrimeraAtendida();
+        CierreSesionRequestDTO peticion = cierre(LocalDate.now(ZONA).plusDays(7), null);
+        when(recomendacionService.resolverVigentes(List.of(dieta.getId())))
+                .thenThrow(new IllegalArgumentException("Alguna recomendacion no esta en el catalogo"));
+
+        assertThrows(IllegalArgumentException.class,
+                () -> servicio.cerrarSesion(plan.getId(), 1, peticion));
+
+        // La sesión se queda como estaba: el cierre es todo o nada.
+        assertEquals(PlanSesion.ESTADO_ATENDIDA, plan.getSesiones().get(0).getEstado());
+    }
+
+    @Test
+    void cerrarSesion_sobreUnaSesionSinCitaAtendida_lanzaIllegalState() {
+        todoEnOrden();
+        Plan plan = planConLaPrimeraAtendida();
+        CierreSesionRequestDTO peticion = cierre(LocalDate.now(ZONA).plusDays(7), null);
+
+        // La segunda sigue pendiente: no hay ninguna consulta de la que hablar.
+        assertThrows(IllegalStateException.class,
+                () -> servicio.cerrarSesion(plan.getId(), 2, peticion));
+
+        verify(recomendacionService, never()).resolverVigentes(any());
+    }
+
+    @Test
+    void cerrarSesion_sobreUnaSesionYaCerrada_lanzaIllegalState() {
+        todoEnOrden();
+        Plan plan = planConLaPrimeraAtendida();
+        CierreSesionRequestDTO peticion = cierre(LocalDate.now(ZONA).plusDays(7), "La primera");
+        catalogoEnOrden();
+        servicio.cerrarSesion(plan.getId(), 1, peticion);
+
+        assertThrows(IllegalStateException.class,
+                () -> servicio.cerrarSesion(plan.getId(), 1, peticion));
+
+        // Y lo indicado la primera vez sigue ahí.
+        assertEquals("La primera", plan.getSesiones().get(0).getObservacion());
+    }
+
+    @Test
+    void cerrarSesion_enElPlanDeOtroOdontologo_lanzaForbidden() {
+        todoEnOrden();
+        Plan plan = planConLaPrimeraAtendida();
+        plan.setOdontologo(Odontologo.builder().id(UUID.randomUUID()).cop("COP-2")
+                .nombres("Ana").apellidos("Quispe").activo(true).build());
+        CierreSesionRequestDTO peticion = cierre(LocalDate.now(ZONA).plusDays(7), null);
+
+        ResponseStatusException ex = assertThrows(ResponseStatusException.class,
+                () -> servicio.cerrarSesion(plan.getId(), 1, peticion));
+
+        assertEquals(HttpStatus.FORBIDDEN.value(), ex.getStatusCode().value());
+        assertEquals(PlanSesion.ESTADO_ATENDIDA, plan.getSesiones().get(0).getEstado());
+    }
+
+    @Test
+    void cerrarSesion_enElPlanDeOtroOdontologo_respondeAntesDeMirarElEstado() {
+        // El orden es contrato: decir «esa sesión ya está cerrada» sobre un plan
+        // ajeno contaría de rebote en qué punto va un tratamiento de otro.
+        todoEnOrden();
+        Plan plan = planConLaPrimeraAtendida();
+        plan.setOdontologo(Odontologo.builder().id(UUID.randomUUID()).cop("COP-2")
+                .nombres("Ana").apellidos("Quispe").activo(true).build());
+        CierreSesionRequestDTO peticion = cierre(LocalDate.now(ZONA).plusDays(7), null);
+
+        // La sesión 2 está pendiente, así que el 409 sería lo siguiente que saldría.
+        ResponseStatusException ex = assertThrows(ResponseStatusException.class,
+                () -> servicio.cerrarSesion(plan.getId(), 2, peticion));
+
+        assertEquals(HttpStatus.FORBIDDEN.value(), ex.getStatusCode().value());
+    }
+
+    @Test
+    void cerrarSesion_comoAdministrador_puedeConElPlanDeCualquiera() {
+        autenticar(UUID.randomUUID(), "SCOPE_ADMINISTRADOR");
+        Plan plan = planConLaPrimeraAtendida();
+        CierreSesionRequestDTO peticion = cierre(LocalDate.now(ZONA).plusDays(7), null);
+        catalogoEnOrden();
+
+        assertEquals(PlanSesion.ESTADO_CERRADA,
+                servicio.cerrarSesion(plan.getId(), 1, peticion).getSesiones().get(0).getEstado());
+    }
+
+    @Test
+    void cerrarSesion_conElPlanSuspendido_igualmenteSeCierra() {
+        // Las recomendaciones son los cuidados de una consulta que ya ocurrió, y
+        // suspender el plan no deshace lo que se hizo en ella.
+        todoEnOrden();
+        Plan plan = planConLaPrimeraAtendida();
+        plan.suspender("Se replantea el tratamiento");
+        CierreSesionRequestDTO peticion = cierre(LocalDate.now(ZONA).plusDays(7), null);
+        catalogoEnOrden();
+
+        assertEquals(PlanSesion.ESTADO_CERRADA,
+                servicio.cerrarSesion(plan.getId(), 1, peticion).getSesiones().get(0).getEstado());
+    }
+
+    @Test
+    void cerrarSesion_conUnNumeroQueElPlanNoTiene_lanzaResourceNotFound() {
+        Plan plan = planConLaPrimeraAtendida();
+        CierreSesionRequestDTO peticion = cierre(LocalDate.now(ZONA).plusDays(7), null);
+
+        assertThrows(ResourceNotFoundException.class,
+                () -> servicio.cerrarSesion(plan.getId(), 99, peticion));
+    }
+
+    @Test
+    void cerrarSesion_deUnPlanInexistente_lanzaResourceNotFound() {
+        UUID inventado = UUID.randomUUID();
+        when(planRepository.findParaCerrarSesion(inventado)).thenReturn(Optional.empty());
+        CierreSesionRequestDTO peticion = cierre(LocalDate.now(ZONA).plusDays(7), null);
+
+        assertThrows(ResourceNotFoundException.class,
+                () -> servicio.cerrarSesion(inventado, 1, peticion));
+    }
+
+    @Test
+    void cerrarSesion_tomaElPlanConLaFilaBloqueada() {
+        // Dos cierres simultáneos de la misma sesión se serializan con ese bloqueo;
+        // sin él, el segundo sustituiría en silencio lo que indicó el primero.
+        todoEnOrden();
+        Plan plan = planConLaPrimeraAtendida();
+        CierreSesionRequestDTO peticion = cierre(LocalDate.now(ZONA).plusDays(7), null);
+        catalogoEnOrden();
+
+        servicio.cerrarSesion(plan.getId(), 1, peticion);
+
+        verify(planRepository).findParaCerrarSesion(plan.getId());
+        verify(planRepository, never()).findConDetalleById(plan.getId());
     }
 
     // ------------------------------------------------------------------
