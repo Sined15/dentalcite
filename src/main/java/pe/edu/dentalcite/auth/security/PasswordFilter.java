@@ -37,6 +37,10 @@ public class PasswordFilter extends OncePerRequestFilter {
                 // que bloquearlo no protege nada y dejaría la portada rota a quien
                 // aún no ha cambiado su contraseña provisional.
                 || requestURI.startsWith("/api/v1/publico/")
+                // La consulta de franjas es publica por lo mismo: sus respuestas
+                // son las mismas para cualquiera, y negarla a quien aun tiene la
+                // contraseña provisional no protegeria nada.
+                || requestURI.equals("/api/v1/disponibilidad")
                 || requestURI.startsWith("/swagger-ui")
                 || requestURI.startsWith("/v3/api-docs")) {
             filterChain.doFilter(request, response);

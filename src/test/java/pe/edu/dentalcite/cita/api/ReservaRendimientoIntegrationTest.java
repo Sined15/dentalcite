@@ -163,7 +163,13 @@ class ReservaRendimientoIntegrationTest {
 
     @AfterEach
     void tearDown() {
-        citaRepository.findAll().stream().map(Cita::getId).forEach(citas::add);
+        // Solo las del odontólogo de esta prueba, que son todas las que reserva.
+        // Recoger todas las de la base se llevaba también la agenda sembrada, y
+        // la prueba del entorno reproducible fallaba si corría después.
+        citaRepository.findAll().stream()
+                .filter(c -> odontologoId.equals(c.getOdontologo().getId()))
+                .map(Cita::getId)
+                .forEach(citas::add);
         citas.stream().distinct().forEach(id -> {
             try {
                 citaRepository.deleteById(id);

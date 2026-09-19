@@ -132,6 +132,9 @@ public class CatalogoPublicoService {
                         .map(Especialidad::getNombre)
                         .sorted(Comparator.naturalOrder())
                         .toList())
+                .especialidadIds(entity.getEspecialidades().stream()
+                        .map(Especialidad::getId)
+                        .toList())
                 .build();
     }
 }

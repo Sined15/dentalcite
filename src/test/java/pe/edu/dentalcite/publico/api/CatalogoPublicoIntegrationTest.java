@@ -152,6 +152,18 @@ class CatalogoPublicoIntegrationTest {
                         org.hamcrest.Matchers.containsString("\"activo\""))));
     }
 
+    /**
+     * La consulta de franjas sin sesión filtra a los odontólogos por el
+     * identificador de la especialidad del tratamiento, no por su nombre.
+     */
+    @Test
+    void listarOdontologos_sinToken_traeLosIdentificadoresDeSusEspecialidades() throws Exception {
+        mockMvc.perform(get("/api/v1/publico/odontologos"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[?(@.cop=='COP-PUB-" + sufijo + "')].especialidadIds[0]")
+                        .value(especialidadId.toString()));
+    }
+
     @Test
     void listarTratamientos_sinToken_traeLosActivosConSuEspecialidad() throws Exception {
         mockMvc.perform(get("/api/v1/publico/tratamientos"))

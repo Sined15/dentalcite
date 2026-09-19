@@ -215,6 +215,20 @@ class DisponibilidadRendimientoIntegrationTest {
     @Test
     @WithMockUser(authorities = "SCOPE_PACIENTE")
     void consultarDisponibilidad_conCincoAgendasAlSetentaPorCientoYCacheFria_cumpleElP95() throws Exception {
+        medirP95("con sesion");
+    }
+
+    /**
+     * La misma medición sin sesión. Abrir la consulta al visitante no puede
+     * costarle el umbral: la petición anónima se salta la validación del token,
+     * pero el cálculo es el mismo, y es el cálculo lo que se mide.
+     */
+    @Test
+    void consultarDisponibilidad_sinSesionConCincoAgendasAlSetentaPorCientoYCacheFria_cumpleElP95() throws Exception {
+        medirP95("sin sesion");
+    }
+
+    private void medirP95(String quien) throws Exception {
         List<Long> muestras = new ArrayList<>();
 
         for (int i = 0; i < MEDICIONES; i++) {
@@ -235,10 +249,11 @@ class DisponibilidadRendimientoIntegrationTest {
         long mediana = muestras.get(MEDICIONES / 2);
 
         // Queda en el log para la comparación del margen del 20 % en los Sprints 3 y 4.
-        log.info("RNF-01 · disponibilidad de {} dias, {} odontologos, cache fria: mediana {} ms, p95 {} ms (umbral {} ms)",
-                DIAS, ODONTOLOGOS, mediana, p95, UMBRAL_P95_MS);
+        log.info("RNF-01 · disponibilidad {} de {} dias, {} odontologos, cache fria: mediana {} ms, p95 {} ms (umbral {} ms)",
+                quien, DIAS, ODONTOLOGOS, mediana, p95, UMBRAL_P95_MS);
 
         assertTrue(p95 <= UMBRAL_P95_MS,
-                "RNF-01: el p95 fue de " + p95 + " ms, por encima del umbral de " + UMBRAL_P95_MS + " ms");
+                "RNF-01 (" + quien + "): el p95 fue de " + p95 + " ms, por encima del umbral de "
+                        + UMBRAL_P95_MS + " ms");
     }
 }

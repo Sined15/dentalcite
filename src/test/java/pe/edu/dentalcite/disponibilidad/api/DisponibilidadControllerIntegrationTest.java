@@ -9,6 +9,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
@@ -42,8 +44,11 @@ import java.util.UUID;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -76,6 +81,7 @@ class DisponibilidadControllerIntegrationTest {
     @Autowired private ConsultorioRepository consultorioRepository;
     @Autowired private FichaRepository fichaRepository;
     @Autowired private pe.edu.dentalcite.especialidad.repository.EspecialidadRepository especialidadRepository;
+    @Autowired private StringRedisTemplate redisTemplate;
 
     private UUID tratamientoId;
     private UUID odontologoId;
@@ -356,13 +362,81 @@ class DisponibilidadControllerIntegrationTest {
                 .andExpect(status().isNotFound());
     }
 
+    // ------------------------------------------------------------------
+    // Consulta sin sesion
+    // ------------------------------------------------------------------
+
+    /**
+     * El visitante y el paciente preguntan lo mismo y el motor no sabe quién
+     * pregunta. Se siembra una cita para que la respuesta no sea el horario
+     * entero, y se vacía la caché entre las dos consultas para que las dos
+     * pasen por el cálculo: comparar una respuesta con su copia cacheada no
+     * demostraría nada.
+     */
     @Test
-    void consultarDisponibilidad_sinAutenticar_retornaUnauthorized() throws Exception {
+    void consultarDisponibilidad_sinSesion_devuelveLasMismasFranjasQueConSesion() throws Exception {
+        sembrarCita(consultorioRepository.findByInoperativoFalse().get(0), 10, 11);
+
+        redisTemplate.opsForValue().increment("disponibilidad:version");
+        String conSesion = mockMvc.perform(peticionDelLunes()
+                        .with(user("paciente").authorities(new SimpleGrantedAuthority("SCOPE_PACIENTE"))))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        redisTemplate.opsForValue().increment("disponibilidad:version");
+        String sinSesion = mockMvc.perform(peticionDelLunes())
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        assertEquals(objectMapper.readTree(conSesion), objectMapper.readTree(sinSesion));
+        List<String> inicios = iniciosDelLunes(sinSesion);
+        assertFalse(inicios.contains("10:00:00"), "el visitante tampoco ve la franja ocupada");
+        assertTrue(inicios.contains("09:00:00"));
+    }
+
+    @Test
+    void consultarDisponibilidad_sinSesionConRangoInvertido_retornaBadRequest() throws Exception {
         mockMvc.perform(get(RUTA)
                         .param("tratamientoId", tratamientoId.toString())
                         .param("desde", lunes.toString())
-                        .param("hasta", lunes.toString()))
+                        .param("hasta", lunes.minusDays(1).toString()))
+                .andExpect(status().isBadRequest());
+    }
+
+    /**
+     * Pública no quiere decir que no autentique lo que se presenta: una cabecera
+     * con un token que no vale la rechaza el filtro antes del controlador.
+     */
+    @Test
+    void consultarDisponibilidad_conTokenInvalido_devuelve401() throws Exception {
+        mockMvc.perform(peticionDelLunes().header("Authorization", "Bearer no-es-un-token"))
                 .andExpect(status().isUnauthorized());
+    }
+
+    /** Solo se abre la lectura: cualquier otro método sobre la ruta se niega. */
+    @Test
+    void consultarDisponibilidad_conMetodoNoGet_seRechaza() throws Exception {
+        int estado = mockMvc.perform(post(RUTA)).andReturn().getResponse().getStatus();
+        assertTrue(estado == 401 || estado == 403, "un POST anónimo no puede prosperar, dio " + estado);
+    }
+
+    /**
+     * Quien aún tiene la contraseña provisional no puede operar el sistema, pero
+     * sí ver lo que ve cualquier visitante: negárselo no protegería nada.
+     */
+    @Test
+    void consultarDisponibilidad_conContrasenaProvisional_devuelveOk() throws Exception {
+        mockMvc.perform(peticionDelLunes()
+                        .with(jwt().jwt(j -> j.claim("requiere_cambio_password", true))))
+                .andExpect(status().isOk());
+    }
+
+    private org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder peticionDelLunes() {
+        return get(RUTA)
+                .param("tratamientoId", tratamientoId.toString())
+                .param("odontologoId", odontologoId.toString())
+                .param("desde", lunes.toString())
+                .param("hasta", lunes.toString());
     }
 
     // ------------------------------------------------------------------

@@ -99,11 +99,16 @@ public class SecurityConfig {
                 .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/v1/usuarios/me").authenticated()
                 .requestMatchers("/api/v1/odontologos/*/horarios/**").hasAnyAuthority("SCOPE_ODONTOLOGO", "SCOPE_ADMINISTRADOR")
                 .requestMatchers("/api/v1/bloqueos/**").hasAnyAuthority("SCOPE_ODONTOLOGO", "SCOPE_RECEPCIONISTA", "SCOPE_ADMINISTRADOR")
-                // HU-08: la disponibilidad la consulta cualquier rol autenticado, el
-                // paciente incluido. Caeria igualmente en el anyRequest() del final,
-                // pero RNF-04 se audita leyendo este metodo: una ruta que no aparece
-                // aqui obliga a deducir su permiso en vez de leerlo.
-                .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/v1/disponibilidad").authenticated()
+                // La disponibilidad se consulta sin sesion: el visitante tiene que
+                // ver si la clinica puede atenderle antes de crearse una cuenta. El
+                // motor no sabe quien pregunta, asi que con o sin token las franjas
+                // son las mismas. Como en el catalogo publico, son dos reglas: la
+                // segunda niega cualquier otro metodo, que sin ella caeria en el
+                // anyRequest() del final y quedaria abierto a los cuatro roles.
+                // Un token invalido sigue dando 401 aunque la ruta sea publica: lo
+                // rechaza el filtro del servidor de recursos antes de llegar aqui.
+                .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/v1/disponibilidad").permitAll()
+                .requestMatchers("/api/v1/disponibilidad").denyAll()
                 // HU-09 y HU-14: reservan el PACIENTE (para si mismo, sin
                 // `pacienteId`) y recepcion o administracion (en nombre de otro,
                 // con `pacienteId`). La ruta no distingue esos dos casos porque

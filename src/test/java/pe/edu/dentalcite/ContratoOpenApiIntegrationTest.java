@@ -145,8 +145,8 @@ class ContratoOpenApiIntegrationTest {
 
     @Test
     void elRegistroYElLoginSeDeclaranPublicos() throws Exception {
-        // Son los dos únicos endpoints que SecurityConfig deja en permitAll: el
-        // contrato debe reflejarlo en vez de sugerir que exigen token.
+        // SecurityConfig los deja en permitAll: el contrato debe reflejarlo en vez
+        // de sugerir que exigen token.
         JsonNode paths = contrato().path("paths");
 
         for (String ruta : Arrays.asList("/api/v1/auth/registro", "/api/v1/auth/login")) {
@@ -154,6 +154,12 @@ class ContratoOpenApiIntegrationTest {
             assertTrue(seguridad.isArray() && seguridad.isEmpty(),
                     ruta + " debe declararse sin requisito de seguridad");
         }
+
+        // La consulta de franjas tampoco pide token: el visitante la usa antes de
+        // tener cuenta.
+        JsonNode seguridadDisponibilidad = paths.path("/api/v1/disponibilidad").path("get").path("security");
+        assertTrue(seguridadDisponibilidad.isArray() && seguridadDisponibilidad.isEmpty(),
+                "/api/v1/disponibilidad debe declararse sin requisito de seguridad");
 
         // El resto sí hereda el requisito global.
         assertFalse(contrato().path("security").isEmpty(),

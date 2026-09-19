@@ -25,4 +25,11 @@ public class OdontologoPublicoDTO {
     private String cop;
     private String imagenUrl;
     private List<String> especialidades;
+    /**
+     * Las mismas especialidades por identificador. La consulta de franjas sin
+     * sesión ofrece solo a quien ejerce la especialidad del tratamiento, y
+     * compararla por nombre ataría el filtro a una cadena que el administrador
+     * puede reescribir.
+     */
+    private List<UUID> especialidadIds;
 }
