@@ -14,9 +14,10 @@ import java.util.UUID;
 /**
  * Un plan de tratamiento con sus sesiones (HU-17 · RF-23).
  *
- * <p><strong>No lleva el avance como cifra.</strong> Se cuenta sobre las
- * sesiones —cuántas tienen cita— cada vez que se pregunta, y un campo que lo
- * resumiera sería un dato más que mantener de acuerdo con ellas.
+ * <p><strong>El avance viaja, pero no se guarda.</strong> {@link #avance} se
+ * cuenta sobre las sesiones —cuántas ocupa una cita atendida— al construir cada
+ * respuesta, y no hay columna de la que leerlo: si la hubiera, sería un dato más
+ * que mantener de acuerdo con ellas.
  */
 @Data
 @Builder
@@ -34,8 +35,21 @@ public class PlanResponseDTO {
     /** Solo presente en los suspendidos. */
     private String motivoSuspension;
     private OffsetDateTime creadoEn;
+    /** Cuántas sesiones se han cumplido y cuántas faltan, contado sobre {@link #sesiones}. */
+    private Avance avance;
     /** Numeradas desde 1. Las ocupadas traen la cita que las ocupa. */
     private List<Sesion> sesiones;
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class Avance {
+        /** Sesiones que ocupa una cita atendida, estén cerradas o no. */
+        private long completadas;
+        /** Sesiones que aún esperan su cita. */
+        private long pendientes;
+    }
 
     @Data
     @Builder

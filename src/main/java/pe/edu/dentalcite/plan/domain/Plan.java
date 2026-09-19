@@ -145,6 +145,24 @@ public class Plan {
     }
 
     /**
+     * Cuántas sesiones se han cumplido: las que ocupa una cita atendida, se hayan
+     * cerrado ya o no. Cerrar una sesión dice qué cuidados seguir, no que la
+     * consulta ocurriera, así que no mueve esta cuenta.
+     *
+     * <p>Se cuenta cada vez que se pregunta y no se guarda en ninguna parte: una
+     * cifra persistida sería otro dato que mantener de acuerdo con las sesiones, y
+     * el día que se desacompasara mentiría al paciente.
+     */
+    public long sesionesCompletadas() {
+        return sesiones.stream().filter(s -> s.getCita() != null).count();
+    }
+
+    /** Las que aún esperan su cita. Junto con las completadas suman las previstas. */
+    public long sesionesPendientes() {
+        return sesiones.stream().filter(PlanSesion::estaPendiente).count();
+    }
+
+    /**
      * Ocupa sesiones con citas que ya estaban atendidas cuando se creó el plan,
      * en el orden en que llegan, y devuelve cuántas ha enlazado.
      *

@@ -1,6 +1,8 @@
 package pe.edu.dentalcite.plan.repository;
 
 import jakarta.persistence.LockModeType;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
@@ -8,6 +10,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import pe.edu.dentalcite.plan.domain.Plan;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -35,6 +38,55 @@ public interface PlanRepository extends JpaRepository<Plan, UUID> {
     @EntityGraph(attributePaths = {"ficha", "tratamiento", "odontologo", "sesiones", "sesiones.cita",
             "sesiones.recomendaciones"})
     Optional<Plan> findConDetalleById(UUID id);
+
+    /**
+     * Los planes que un odontólogo sigue, solo sus identificadores y ya paginados.
+     *
+     * <p>Sigue los que firmó él y todos los de los pacientes que tienen alguna cita
+     * suya sin cancelar, los firme quien los firme: si el paciente ha pedido hora
+     * con él, lo que otro compañero le tenga planificado es parte de lo que tiene
+     * que saber antes de sentarlo en el sillón. La cita cancelada no cuenta por lo
+     * mismo que en {@code CitaRepository.atendioAPorFichaDelOdontologo}, que es la
+     * regla con la que después se abre cada plan: aquí no puede aparecer ninguno
+     * que al pulsarlo respondiera 403.
+     *
+     * <p>Van solo los identificadores porque la paginación tiene que hacerse en
+     * SQL, y con la colección de sesiones en el grafo Hibernate la haría en
+     * memoria. El detalle lo carga {@link #findConDetalleByIdIn} para la página ya
+     * cortada: dos consultas por página, sea cual sea su tamaño.
+     *
+     * <p>El orden va escrito en la consulta y no sale del {@code Pageable}: primero
+     * los que siguen en curso y, dentro de cada grupo, el más reciente arriba.
+     */
+    @Query(value = """
+            SELECT p.id FROM Plan p
+            WHERE (p.odontologo.id = :odontologoId
+                   OR EXISTS (SELECT 1 FROM Cita c
+                              WHERE c.odontologo.id = :odontologoId
+                                AND c.ficha = p.ficha
+                                AND c.estado <> 'CANCELADA'))
+              AND (:soloActivos = false OR p.activo = true)
+            ORDER BY p.activo DESC, p.creadoEn DESC, p.id
+            """,
+            countQuery = """
+            SELECT COUNT(p) FROM Plan p
+            WHERE (p.odontologo.id = :odontologoId
+                   OR EXISTS (SELECT 1 FROM Cita c
+                              WHERE c.odontologo.id = :odontologoId
+                                AND c.ficha = p.ficha
+                                AND c.estado <> 'CANCELADA'))
+              AND (:soloActivos = false OR p.activo = true)
+            """)
+    Page<UUID> idsDeSeguimiento(@Param("odontologoId") UUID odontologoId,
+            @Param("soloActivos") boolean soloActivos, Pageable pageable);
+
+    /**
+     * Varios planes con todo lo que hace falta para pintarlos, paciente incluido.
+     * No garantiza ningún orden: quien lo llama lo repone con el de los ids.
+     */
+    @EntityGraph(attributePaths = {"ficha", "tratamiento", "odontologo", "sesiones", "sesiones.cita",
+            "sesiones.recomendaciones"})
+    List<Plan> findConDetalleByIdIn(Collection<UUID> ids);
 
     /**
      * El plan activo de un paciente para un tratamiento, con su fila bloqueada

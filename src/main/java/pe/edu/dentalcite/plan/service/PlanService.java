@@ -3,6 +3,9 @@ package pe.edu.dentalcite.plan.service;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -32,8 +35,11 @@ import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 /**
  * Planes de tratamiento (HU-17 · RF-23 · RN-12, RN-13 · RNF-04).
@@ -290,6 +296,81 @@ public class PlanService {
                 .toList();
     }
 
+    /**
+     * Un plan con su avance y todas sus sesiones, que es de donde el cliente saca
+     * la línea de tiempo.
+     *
+     * <h2>El plan que no existe</h2>
+     *
+     * Solo el administrador recibe 404. El paciente y el odontólogo ven una parte
+     * de la clínica, y para ellos un identificador inventado responde lo mismo que
+     * el plan de otro, 403: si uno diera 404 y el otro 403, probando
+     * identificadores se sabría cuáles existen. El administrador lo ve todo, así
+     * que a él el 404 no le cuenta nada que no pudiera consultar, y le ahorra
+     * buscar un permiso donde hay una errata.
+     *
+     * <h2>Quién lo lee</h2>
+     *
+     * El odontólogo que lo firmó lo lee siempre, aunque la cita que le dio el
+     * vínculo con el paciente se cancelara después: es un plan que está a su
+     * cargo. Para todos los demás decide {@link PacienteAccessGuard}, con la misma
+     * regla que abre la ficha: el paciente, la suya; el odontólogo, la de quien
+     * tiene una cita con él sin cancelar.
+     */
+    @Transactional(readOnly = true)
+    public PlanResponseDTO obtener(UUID planId) {
+        Authentication auth = autenticado();
+        Plan plan = planRepository.findConDetalleById(planId).orElse(null);
+
+        if (plan == null) {
+            if (tieneAutoridad(auth, ADMINISTRADOR)) {
+                throw new ResourceNotFoundException("Plan no encontrado");
+            }
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                    "No puede consultar este plan de tratamiento.");
+        }
+
+        if (!loFirmoQuienPregunta(auth, plan)) {
+            accessGuard.verificarLectura(plan.getFicha().getId());
+        }
+        return mapear(plan);
+    }
+
+    /**
+     * Los planes que sigue el odontólogo autenticado: los que firmó y los de los
+     * pacientes que tienen alguna cita suya sin cancelar. Quién entra en esa lista
+     * y por qué está escrito en {@link PlanRepository#idsDeSeguimiento}.
+     *
+     * <p>El orden lo fija la consulta, así que el del {@code Pageable} se descarta:
+     * un {@code sort} inventado no puede convertir la petición en un 500.
+     */
+    @Transactional(readOnly = true)
+    public Page<PlanResponseDTO> seguimiento(boolean soloActivos, Pageable pageable) {
+        Odontologo yo = registroDelOdontologoAutenticado(autenticado());
+        Pageable sinOrden = PageRequest.of(pageable.getPageNumber(), pageable.getPageSize());
+
+        Page<UUID> ids = planRepository.idsDeSeguimiento(yo.getId(), soloActivos, sinOrden);
+        if (ids.isEmpty()) {
+            return ids.map(id -> null);
+        }
+
+        Map<UUID, Plan> porId = planRepository.findConDetalleByIdIn(ids.getContent()).stream()
+                .collect(Collectors.toMap(Plan::getId, Function.identity()));
+        return ids.map(id -> mapear(porId.get(id)));
+    }
+
+    /**
+     * Si quien pregunta es el odontólogo que firmó el plan. Solo resuelve el
+     * registro cuando el rol es ODONTOLOGO: al paciente y al administrador no hay
+     * nada que buscarles.
+     */
+    private boolean loFirmoQuienPregunta(Authentication auth, Plan plan) {
+        if (!tieneAutoridad(auth, ODONTOLOGO)) {
+            return false;
+        }
+        return registroDelOdontologoAutenticado(auth).getId().equals(plan.getOdontologo().getId());
+    }
+
     // ------------------------------------------------------------------
     // Autorización · RNF-04
     // ------------------------------------------------------------------
@@ -414,6 +495,10 @@ public class PlanService {
                 .activo(plan.getActivo())
                 .motivoSuspension(plan.getMotivoSuspension())
                 .creadoEn(plan.getCreadoEn())
+                .avance(PlanResponseDTO.Avance.builder()
+                        .completadas(plan.sesionesCompletadas())
+                        .pendientes(plan.sesionesPendientes())
+                        .build())
                 .sesiones(plan.getSesiones().stream()
                         .map(PlanService::sesion)
                         .toList())

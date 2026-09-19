@@ -151,8 +151,16 @@ public class SecurityConfig {
                 // sobre lo propio, como le pasaria a /citas/mias. Que solo alcance su
                 // ficha no hace falta escribirlo aqui: PlanService.deFicha se lo
                 // pregunta a PacienteAccessGuard, que al paciente solo le concede la
-                // suya. El avance y la linea de tiempo son otra historia.
+                // suya.
+                //
+                // Lo mismo con el detalle de un plan, que es de donde sale su
+                // linea de tiempo: tambien va antes del comodin, y quien lee cual
+                // lo decide PlanService.obtener con el plan en la mano. El
+                // seguimiento se declara antes que el detalle porque es solo del
+                // odontologo, y el patron de un segmento tambien lo cubriria.
                 .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/v1/planes").hasAnyAuthority("SCOPE_PACIENTE", "SCOPE_ODONTOLOGO", "SCOPE_ADMINISTRADOR")
+                .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/v1/planes/seguimiento").hasAuthority("SCOPE_ODONTOLOGO")
+                .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/v1/planes/*").hasAnyAuthority("SCOPE_PACIENTE", "SCOPE_ODONTOLOGO", "SCOPE_ADMINISTRADOR")
                 .requestMatchers("/api/v1/planes/**").hasAnyAuthority("SCOPE_ODONTOLOGO", "SCOPE_ADMINISTRADOR")
                 // El catalogo cerrado de recomendaciones lo lee quien cierra una
                 // sesion, que es el unico sitio desde donde se elige de el.

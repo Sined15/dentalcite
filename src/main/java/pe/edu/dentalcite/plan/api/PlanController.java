@@ -6,6 +6,9 @@ import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpStatus;
 import io.swagger.v3.oas.annotations.Parameter;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -27,7 +30,8 @@ import java.util.List;
 import java.util.UUID;
 
 @Tag(name = "Planes de tratamiento",
-        description = "M6 · Creacion y suspension del plan de tratamiento (HU-17, RF-23)")
+        description = "M6 · Creacion, suspension, cierre de sesiones y avance del plan de tratamiento"
+                + " (HU-17 a HU-20)")
 @RestController
 @RequestMapping("/api/v1/planes")
 @RequiredArgsConstructor
@@ -67,11 +71,12 @@ public class PlanController {
                     + " Un plan lleva el nombre del paciente, asi que este listado es una lectura de la"
                     + " historia clinica y cae bajo RNF-06: el ODONTOLOGO solo ve los planes de pacientes a"
                     + " los que ha atendido."
-                    + " Cada sesion trae la cita atendida que la ocupa, o `null` si sigue pendiente. **No trae"
-                    + " el avance como cifra**: se cuenta sobre las sesiones, y la consulta con avance, linea de"
-                    + " tiempo y recomendaciones llegara con su propio contrato.")
+                    + " Cada sesion trae la cita atendida que la ocupa, o `null` si sigue pendiente, y lo"
+                    + " indicado al cerrarla. Desde HU-20 cada plan trae `avance` —sesiones completadas y"
+                    + " pendientes—, calculado al responder sobre las citas atendidas enlazadas y nunca"
+                    + " persistido (RN-14). El PACIENTE solo alcanza su propia ficha.")
     @ApiResponses({
-            @ApiResponse(responseCode = "200", description = "Planes del paciente, con la cita que ocupa cada sesion"),
+            @ApiResponse(responseCode = "200", description = "Planes del paciente, con su avance y la cita que ocupa cada sesion"),
             @ApiResponse(responseCode = "401", description = "Sin token o con token revocado"),
             @ApiResponse(responseCode = "403", description = "El rol no puede consultar planes, o no ha atendido a este paciente (RNF-04, RNF-06)")
     })
@@ -80,6 +85,42 @@ public class PlanController {
             @Parameter(description = "Ficha del paciente cuyos planes se consultan")
             @RequestParam UUID pacienteId) {
         return planService.deFicha(pacienteId);
+    }
+
+    @Operation(summary = "Seguimiento de los planes de mis pacientes",
+            description = "HU-20 · RF-26 · ODONTOLOGO. Los planes que firmo y todos los de los pacientes que"
+                    + " tienen alguna cita suya sin cancelar, los firme quien los firme, con su avance. Primero"
+                    + " los que siguen en curso y, dentro de cada grupo, el mas reciente arriba; el orden lo"
+                    + " fija el servidor y el parametro `sort` se ignora. Por defecto solo los activos.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Pagina de planes con su avance"),
+            @ApiResponse(responseCode = "401", description = "Sin token o con token revocado"),
+            @ApiResponse(responseCode = "403", description = "El rol no es ODONTOLOGO, o la cuenta no esta vinculada a un registro de odontologo (RNF-04)")
+    })
+    @GetMapping("/seguimiento")
+    public Page<PlanResponseDTO> seguimiento(
+            @Parameter(description = "Falso para incluir tambien los planes suspendidos")
+            @RequestParam(defaultValue = "true") boolean soloActivos,
+            @PageableDefault(size = 20) Pageable pageable) {
+        return planService.seguimiento(soloActivos, pageable);
+    }
+
+    @Operation(summary = "Consultar el avance de un plan",
+            description = "HU-20 · RF-26 · PACIENTE (los propios), ODONTOLOGO (el que lo firmo, o con el paciente"
+                    + " vinculado por una cita sin cancelar) y ADMINISTRADOR. El plan con su avance y todas sus"
+                    + " sesiones en orden: fecha de atencion de la cita que la ocupa, si la tiene, y lo indicado"
+                    + " al cerrarla, si se cerro. Una sesion ATENDIDA es una sesion atendida pendiente de cierre."
+                    + " Un plan inexistente da 404 solo al ADMINISTRADOR; al PACIENTE y al ODONTOLOGO les da 403,"
+                    + " igual que el plan ajeno, para que la respuesta no revele que planes existen (RNF-06).")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Plan con su avance y sus sesiones"),
+            @ApiResponse(responseCode = "401", description = "Sin token o con token revocado"),
+            @ApiResponse(responseCode = "403", description = "El plan es de otro paciente, el odontologo no esta vinculado a el, o no existe y quien pregunta no es administrador (RNF-04, RNF-06)"),
+            @ApiResponse(responseCode = "404", description = "Solo al ADMINISTRADOR: no existe un plan con ese identificador")
+    })
+    @GetMapping("/{id}")
+    public PlanResponseDTO obtener(@PathVariable UUID id) {
+        return planService.obtener(id);
     }
 
     @Operation(summary = "Suspender un plan de tratamiento",

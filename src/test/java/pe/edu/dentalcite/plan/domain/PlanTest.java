@@ -207,6 +207,35 @@ class PlanTest {
     }
 
     @Test
+    void sesionesCompletadas_deSeisConDosAtendidas_sonDosYQuedanCuatroPendientes() {
+        Plan plan = planDe(6);
+        plan.getSesiones().get(0).enlazar(atendida("CIT-1"));
+        plan.getSesiones().get(1).enlazar(atendida("CIT-2"));
+
+        assertEquals(2, plan.sesionesCompletadas());
+        assertEquals(4, plan.sesionesPendientes());
+    }
+
+    @Test
+    void sesionesCompletadas_unaSesionCerradaSigueContandoComoCompletada() {
+        Plan plan = planDe(3);
+        PlanSesion primera = plan.getSesiones().get(0);
+        primera.enlazar(atendida("CIT-1"));
+        primera.cerrar(Set.of(cuidado("Dieta blanda")), LocalDate.of(2026, 10, 1), null);
+
+        assertEquals(1, plan.sesionesCompletadas());
+        assertEquals(2, plan.sesionesPendientes());
+    }
+
+    @Test
+    void sesionesCompletadas_deUnPlanRecienCreado_esCero() {
+        Plan plan = planDe(4);
+
+        assertEquals(0, plan.sesionesCompletadas());
+        assertEquals(4, plan.sesionesPendientes());
+    }
+
+    @Test
     void suspender_bajaLaMarcaDeActividadYGuardaElMotivo() {
         Plan plan = planDe(2);
 

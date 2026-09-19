@@ -435,9 +435,10 @@ class PlanDeTratamientoIntegrationTest {
     }
 
     @Test
-    void listar_noTraeAvance() throws Exception {
-        // El avance se cuenta sobre las sesiones cada vez que se pregunta: un campo
-        // que lo resumiera seria un dato mas que mantener de acuerdo con ellas.
+    void listar_traeElAvanceContadoSobreLasSesiones() throws Exception {
+        // Viaja en la respuesta, pero se cuenta sobre las sesiones cada vez que se
+        // pregunta: que no exista una columna que lo guarde lo vigila
+        // EnlaceDeCitaConSesionIntegrationTest.
         crearPlanDeLuis(ortodonciaId, 6);
 
         mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
@@ -446,7 +447,8 @@ class PlanDeTratamientoIntegrationTest {
                                 .authorities(new SimpleGrantedAuthority("SCOPE_ODONTOLOGO")))
                         .param("pacienteId", fichaPaciente.getId().toString()))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[0].avance").doesNotExist())
+                .andExpect(jsonPath("$[0].avance.completadas").value(0))
+                .andExpect(jsonPath("$[0].avance.pendientes").value(6))
                 .andExpect(jsonPath("$[0].sesiones.length()").value(6));
     }
 

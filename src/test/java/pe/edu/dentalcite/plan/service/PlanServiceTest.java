@@ -8,6 +8,11 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
@@ -220,14 +225,14 @@ class PlanServiceTest {
     }
 
     @Test
-    void crear_noDevuelveAvance() {
-        // RN-14: el avance se deriva de las citas atendidas enlazadas y eso es
-        // HU-18. Un campo a cero aqui prometeria un dato que no significa nada.
+    void crear_sinCitasPrevias_devuelveElAvanceConTodasPendientes() {
         todoEnOrden();
 
         PlanResponseDTO plan = servicio.crear(peticion(3));
 
         assertEquals(3, plan.getSesionesPrevistas());
+        assertEquals(0, plan.getAvance().getCompletadas());
+        assertEquals(3, plan.getAvance().getPendientes());
         assertTrue(plan.getSesiones().stream().noneMatch(s -> s.getEstado() == null));
     }
 
@@ -743,5 +748,185 @@ class PlanServiceTest {
         assertEquals(HttpStatus.FORBIDDEN, e.getStatusCode());
         // Ni se llega a consultar: el nombre del paciente no sale de la base.
         verify(planRepository, never()).findByFichaIdOrderByCreadoEnDesc(any());
+    }
+
+    @Test
+    void deFicha_devuelveElAvanceDeCadaPlan() {
+        Plan plan = planEnCurso();
+        plan.getSesiones().get(0).enlazar(Cita.builder().id(UUID.randomUUID())
+                .codigo("CIT-000001").estado(Cita.ESTADO_ATENDIDA).build());
+        when(planRepository.findByFichaIdOrderByCreadoEnDesc(fichaPaciente.getId()))
+                .thenReturn(List.of(plan));
+
+        PlanResponseDTO.Avance avance = servicio.deFicha(fichaPaciente.getId()).get(0).getAvance();
+
+        assertEquals(1, avance.getCompletadas());
+        assertEquals(4, avance.getPendientes());
+    }
+
+    // ------------------------------------------------------------------
+    // El detalle del plan, con su avance
+    // ------------------------------------------------------------------
+
+    /** Un plan de seis sesiones con dos citas atendidas: la segunda, sin cerrar todavía. */
+    private Plan planDeSeisConDosAtendidas() {
+        Plan plan = Plan.builder()
+                .id(UUID.randomUUID())
+                .ficha(fichaPaciente).tratamiento(tratamiento).odontologo(luis)
+                .sesionesPrevistas(6).activo(true)
+                .build();
+        plan.generarSesiones();
+        plan.getSesiones().get(0).enlazar(Cita.builder().id(UUID.randomUUID()).codigo("CIT-000001")
+                .inicio(OffsetDateTime.parse("2026-08-01T09:00:00-05:00"))
+                .estado(Cita.ESTADO_ATENDIDA).build());
+        plan.getSesiones().get(0).cerrar(Set.of(Recomendacion.builder().id(UUID.randomUUID())
+                .descripcion("Mantener dieta blanda").activa(true).build()),
+                LocalDate.of(2026, 8, 15), null);
+        plan.getSesiones().get(1).enlazar(Cita.builder().id(UUID.randomUUID()).codigo("CIT-000002")
+                .inicio(OffsetDateTime.parse("2026-08-20T09:00:00-05:00"))
+                .estado(Cita.ESTADO_ATENDIDA).build());
+        return plan;
+    }
+
+    @Test
+    void obtener_deSeisConDosAtendidas_devuelveDosCompletadasYCuatroPendientes() {
+        autenticar(UUID.randomUUID(), "SCOPE_PACIENTE");
+        Plan plan = planDeSeisConDosAtendidas();
+        when(planRepository.findConDetalleById(plan.getId())).thenReturn(Optional.of(plan));
+
+        PlanResponseDTO respuesta = servicio.obtener(plan.getId());
+
+        assertEquals(2, respuesta.getAvance().getCompletadas());
+        assertEquals(4, respuesta.getAvance().getPendientes());
+        assertEquals("CERRADA", respuesta.getSesiones().get(0).getEstado());
+        // La atendida sin cerrar es la que la linea de tiempo señala.
+        assertEquals("ATENDIDA", respuesta.getSesiones().get(1).getEstado());
+        verify(accessGuard).verificarLectura(fichaPaciente.getId());
+    }
+
+    @Test
+    void obtener_elPlanDeOtroPaciente_propagaElForbiddenDelGuard() {
+        autenticar(UUID.randomUUID(), "SCOPE_PACIENTE");
+        Plan plan = planDeSeisConDosAtendidas();
+        when(planRepository.findConDetalleById(plan.getId())).thenReturn(Optional.of(plan));
+        doThrow(new ResponseStatusException(HttpStatus.FORBIDDEN, "Solo la propia"))
+                .when(accessGuard).verificarLectura(fichaPaciente.getId());
+
+        ResponseStatusException e = assertThrows(ResponseStatusException.class,
+                () -> servicio.obtener(plan.getId()));
+
+        assertEquals(HttpStatus.FORBIDDEN, e.getStatusCode());
+    }
+
+    @Test
+    void obtener_unPlanInexistenteComoPaciente_respondeForbiddenYNoNotFound() {
+        autenticar(UUID.randomUUID(), "SCOPE_PACIENTE");
+        UUID inventado = UUID.randomUUID();
+        when(planRepository.findConDetalleById(inventado)).thenReturn(Optional.empty());
+
+        ResponseStatusException e = assertThrows(ResponseStatusException.class,
+                () -> servicio.obtener(inventado));
+
+        assertEquals(HttpStatus.FORBIDDEN, e.getStatusCode());
+    }
+
+    @Test
+    void obtener_unPlanInexistenteComoOdontologo_respondeForbidden() {
+        UUID inventado = UUID.randomUUID();
+        when(planRepository.findConDetalleById(inventado)).thenReturn(Optional.empty());
+
+        ResponseStatusException e = assertThrows(ResponseStatusException.class,
+                () -> servicio.obtener(inventado));
+
+        assertEquals(HttpStatus.FORBIDDEN, e.getStatusCode());
+    }
+
+    @Test
+    void obtener_unPlanInexistenteComoAdministrador_lanzaResourceNotFound() {
+        autenticar(UUID.randomUUID(), "SCOPE_ADMINISTRADOR");
+        UUID inventado = UUID.randomUUID();
+        when(planRepository.findConDetalleById(inventado)).thenReturn(Optional.empty());
+
+        assertThrows(ResourceNotFoundException.class, () -> servicio.obtener(inventado));
+    }
+
+    @Test
+    void obtener_elOdontologoQueLoFirmo_loLeeSinPreguntarPorElVinculo() {
+        // Esta a su cargo aunque la cita que le dio el vinculo se cancelara.
+        todoEnOrden();
+        Plan plan = planDeSeisConDosAtendidas();
+        when(planRepository.findConDetalleById(plan.getId())).thenReturn(Optional.of(plan));
+
+        assertEquals(plan.getId(), servicio.obtener(plan.getId()).getId());
+        verify(accessGuard, never()).verificarLectura(any());
+    }
+
+    @Test
+    void obtener_unOdontologoQueNoLoFirmo_dependeDelVinculoConElPaciente() {
+        todoEnOrden();
+        Plan plan = planDeSeisConDosAtendidas();
+        plan.setOdontologo(Odontologo.builder().id(UUID.randomUUID()).cop("COP-2")
+                .nombres("Ana").apellidos("Quispe").activo(true).build());
+        when(planRepository.findConDetalleById(plan.getId())).thenReturn(Optional.of(plan));
+        doThrow(new ResponseStatusException(HttpStatus.FORBIDDEN, "No ha atendido a este paciente"))
+                .when(accessGuard).verificarLectura(fichaPaciente.getId());
+
+        ResponseStatusException e = assertThrows(ResponseStatusException.class,
+                () -> servicio.obtener(plan.getId()));
+
+        assertEquals(HttpStatus.FORBIDDEN, e.getStatusCode());
+    }
+
+    @Test
+    void obtener_comoAdministrador_pasaPorElGuardQueLeDejaVerlo() {
+        autenticar(UUID.randomUUID(), "SCOPE_ADMINISTRADOR");
+        Plan plan = planDeSeisConDosAtendidas();
+        when(planRepository.findConDetalleById(plan.getId())).thenReturn(Optional.of(plan));
+
+        assertEquals(2, servicio.obtener(plan.getId()).getAvance().getCompletadas());
+    }
+
+    // ------------------------------------------------------------------
+    // El seguimiento del odontólogo
+    // ------------------------------------------------------------------
+
+    @Test
+    void seguimiento_respetaElOrdenDeLosIdentificadoresYNoElDeLaCarga() {
+        todoEnOrden();
+        Plan primero = planDeSeisConDosAtendidas();
+        Plan segundo = planEnCurso();
+        Pageable pagina = PageRequest.of(0, 20, Sort.by("inexistente"));
+        when(planRepository.idsDeSeguimiento(luis.getId(), true, PageRequest.of(0, 20)))
+                .thenReturn(new PageImpl<>(List.of(primero.getId(), segundo.getId()),
+                        PageRequest.of(0, 20), 2));
+        when(planRepository.findConDetalleByIdIn(List.of(primero.getId(), segundo.getId())))
+                .thenReturn(List.of(segundo, primero));
+
+        Page<PlanResponseDTO> respuesta = servicio.seguimiento(true, pagina);
+
+        assertEquals(List.of(primero.getId(), segundo.getId()),
+                respuesta.getContent().stream().map(PlanResponseDTO::getId).toList());
+        assertEquals(2, respuesta.getContent().get(0).getAvance().getCompletadas());
+        assertEquals(2, respuesta.getTotalElements());
+    }
+
+    @Test
+    void seguimiento_sinPlanes_noCargaNingunDetalle() {
+        todoEnOrden();
+        when(planRepository.idsDeSeguimiento(luis.getId(), false, PageRequest.of(0, 20)))
+                .thenReturn(Page.empty(PageRequest.of(0, 20)));
+
+        assertTrue(servicio.seguimiento(false, PageRequest.of(0, 20)).isEmpty());
+        verify(planRepository, never()).findConDetalleByIdIn(any());
+    }
+
+    @Test
+    void seguimiento_comoPaciente_lanzaForbidden() {
+        autenticar(UUID.randomUUID(), "SCOPE_PACIENTE");
+
+        ResponseStatusException e = assertThrows(ResponseStatusException.class,
+                () -> servicio.seguimiento(true, PageRequest.of(0, 20)));
+
+        assertEquals(HttpStatus.FORBIDDEN, e.getStatusCode());
     }
 }
