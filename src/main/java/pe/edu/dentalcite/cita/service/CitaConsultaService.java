@@ -4,6 +4,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -16,6 +17,7 @@ import pe.edu.dentalcite.cita.domain.Cita;
 import pe.edu.dentalcite.cita.domain.CitaHistorial;
 import pe.edu.dentalcite.cita.repository.CitaHistorialRepository;
 import pe.edu.dentalcite.cita.repository.CitaRepository;
+import pe.edu.dentalcite.common.api.Ordenacion;
 import pe.edu.dentalcite.common.exception.ResourceNotFoundException;
 import pe.edu.dentalcite.ficha.domain.Ficha;
 import pe.edu.dentalcite.usuario.domain.Usuario;
@@ -29,23 +31,13 @@ import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 
-/**
- * Consulta de la agenda de la clínica (HU-11 · RF-18), de las citas del propio
- * paciente (HU-15 · RF-18), de las pendientes de cierre (HU-16 · RF-22) y de la
- * bitácora de una cita (RF-21).
- *
- * <p>Vive aparte de {@link CitaService} a propósito: aquel no es
- * {@code @Transactional} porque el reintento de RF-16 necesita abrir una
- * transacción nueva por intento, y una consulta sí quiere una transacción de
- * lectura que mantenga la sesión abierta mientras se mapea. Son dos contratos
- * transaccionales incompatibles en la misma clase.
- */
 @Service
 public class CitaConsultaService {
 
-    /** RN-09: los estados por los que tiene sentido filtrar. */
     private static final Set<String> ESTADOS = Set.of(
             "CONFIRMADA", "ATENDIDA", "NO_ASISTIO", "CANCELADA");
+
+    private static final Set<String> ORDENABLES = Set.of("inicio", "fin", "estado", "codigo");
 
     private final CitaRepository citaRepository;
     private final CitaHistorialRepository historialRepository;
@@ -65,25 +57,6 @@ public class CitaConsultaService {
         this.zona = ZoneId.of(zonaHoraria);
     }
 
-    /**
-     * RF-18: las citas cuyo inicio cae entre {@code desde} y {@code hasta}, ambos
-     * inclusive y expresados como <em>días</em> de la clínica.
-     *
-     * <p>El rango se traduce a instantes en la zona de la clínica y el extremo
-     * superior se abre al día siguiente: pedir el 14 al 14 tiene que devolver la
-     * cita de las 19:00 de ese día, y comparar contra el inicio del 14 la habría
-     * dejado fuera.
-     *
-     * <p><strong>Quién ve qué lo decide el rol</strong>, como en la cola de
-     * cierre. Recepción y administración ven la clínica entera y el odontólogo
-     * solo las suyas. El paciente tiene su propia consulta, {@link #mias}.
-     *
-     * <p>Al odontólogo se le <strong>ignora</strong> el {@code odontologoId} que
-     * mande, en vez de cruzarlo con el suyo. Cruzarlos devolvería una página
-     * vacía al pedir los de otro, y una lista vacía dice «no tienes citas», que
-     * es una respuesta falsa y de las más difíciles de depurar. Su ámbito no es
-     * un filtro que él elija: sale del token.
-     */
     @Transactional(readOnly = true)
     public Page<CitaResumenDTO> consultar(LocalDate desde, LocalDate hasta, UUID odontologoId,
             String estado, Pageable pageable) {
@@ -105,24 +78,10 @@ public class CitaConsultaService {
 
         return citaRepository
                 .buscar(inicio, fin, null, odontologoPedido, fichaDelOdontologo,
-                        estadoNormalizado, pageable)
+                        estadoNormalizado, Ordenacion.cribar(pageable, ORDENABLES, Sort.by("inicio")))
                 .map(this::resumen);
     }
 
-    /**
-     * HU-15 · RF-18 ampliado al paciente: «veré las futuras y las pasadas con su
-     * estado, y ninguna de otro paciente».
-     *
-     * <p>La ficha <strong>se resuelve aquí dentro, a partir del token</strong>, y
-     * no se recibe como parámetro. Es deliberado: si fuera un argumento, el
-     * «ninguna de otro paciente» dependería de que cada llamante se acordase de
-     * pasar la correcta, y bastaría un controlador descuidado para convertirlo en
-     * una fuga. Así no hay forma de pedir la de otro.
-     *
-     * <p>El rango es opcional aquí, al revés que en la agenda de la clínica: el
-     * criterio pide ver las futuras <em>y</em> las pasadas, así que omitirlo
-     * significa «todas» y no un error.
-     */
     @Transactional(readOnly = true)
     public Page<CitaResumenDTO> mias(LocalDate desde, LocalDate hasta,
             String estado, Pageable pageable) {
@@ -138,21 +97,11 @@ public class CitaConsultaService {
         OffsetDateTime fin = hasta == null ? null
                 : hasta.plusDays(1).atStartOfDay(zona).toOffsetDateTime();
 
-        return citaRepository.buscar(inicio, fin, fichaId, null, null, estadoNormalizado, pageable)
+        Pageable cribada = Ordenacion.cribar(pageable, ORDENABLES, Sort.by(Sort.Direction.DESC, "inicio"));
+        return citaRepository.buscar(inicio, fin, fichaId, null, null, estadoNormalizado, cribada)
                 .map(this::resumen);
     }
 
-    /**
-     * RF-08, HU-13: las citas de una ficha, pasadas y futuras, de la más reciente
-     * a la más antigua.
-     *
-     * <p>Lo consume {@code PacienteService} para pintar la ficha. Vive aquí y no
-     * allí porque lo que tiene trampa no es leer las filas sino traducirlas: la
-     * cita se guarda en UTC y se muestra en la hora local de la clínica, y esa
-     * conversión —con {@code app.zona-horaria}— ya está resuelta en
-     * {@link #resumen}. Una segunda copia del mapeador sería una segunda copia de
-     * la zona horaria, que es exactamente donde aparecen los desfases de una hora.
-     */
     @Transactional(readOnly = true)
     public List<CitaResumenDTO> deFicha(UUID fichaId) {
         return citaRepository.findByFichaIdOrderByInicioDesc(fichaId).stream()
@@ -160,23 +109,13 @@ public class CitaConsultaService {
                 .toList();
     }
 
-    /**
-     * RF-22, HU-16: «el listado de citas pendientes de cierre … las confirmadas
-     * cuya hora de fin ya pasó y siguen sin resultado».
-     *
-     * <p>Quién ve qué lo decide el rol y no un parámetro: recepción y
-     * administración ven la clínica entera y el odontólogo solo las suyas, que es
-     * el «(la propia)» del contrato. Como en «mis citas», la ficha se resuelve
-     * aquí dentro a partir del token; si fuera un argumento, un odontólogo podría
-     * pedir la cola de otro.
-     */
     @Transactional(readOnly = true)
     public Page<CitaResumenDTO> pendientesDeCierre(Pageable pageable) {
         UUID fichaDelOdontologo = esOdontologoSinPrivilegios() ? fichaDelUsuarioAutenticado() : null;
-        return citaRepository.pendientesDeCierre(fichaDelOdontologo, pageable).map(this::resumen);
+        return citaRepository.pendientesDeCierre(fichaDelOdontologo, Ordenacion.sinOrden(pageable))
+                .map(this::resumen);
     }
 
-    /** RF-21: la bitácora completa de una cita, en orden cronológico. */
     @Transactional(readOnly = true)
     public List<CitaHistorialDTO> historial(UUID citaId) {
         if (!citaRepository.existsById(citaId)) {
@@ -187,10 +126,6 @@ public class CitaConsultaService {
                 .toList();
     }
 
-    /**
-     * Si quien pregunta es un odontólogo y nada más. Recepción y administración
-     * no se filtran por ficha aunque tuvieran una: ven la clínica entera.
-     */
     private static boolean esOdontologoSinPrivilegios() {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
         if (auth == null || !auth.isAuthenticated()) {
@@ -206,16 +141,10 @@ public class CitaConsultaService {
                 .anyMatch(a -> "SCOPE_ODONTOLOGO".equals(a.getAuthority()));
     }
 
-    /** Alias con nombre de dominio: en «mis citas» quien pregunta es el paciente. */
     private UUID fichaDelPacienteAutenticado() {
         return fichaDelUsuarioAutenticado();
     }
 
-    /**
-     * La ficha de quien pregunta. Falla cerrado: sin credenciales, sin cuenta o
-     * sin ficha no hay nada que devolver, y una lista vacía sería peor que un
-     * error porque parecería que no tiene ninguna cita.
-     */
     private UUID fichaDelUsuarioAutenticado() {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
         if (auth == null || !auth.isAuthenticated()) {
@@ -238,10 +167,6 @@ public class CitaConsultaService {
         return usuario.getFicha().getId();
     }
 
-    /**
-     * Un estado desconocido no devuelve una página vacía: eso convertiría una
-     * errata en «no hay citas», que es la respuesta más difícil de depurar.
-     */
     private static String normalizarEstado(String estado) {
         if (estado == null || estado.isBlank()) {
             return null;
@@ -275,11 +200,6 @@ public class CitaConsultaService {
                 .build();
     }
 
-    /**
-     * La ficha puede no tener nombre: RF-06 admite darla de alta con el documento
-     * mientras se completan los datos. En ese caso identifica el número de
-     * historia, que sí es obligatorio.
-     */
     private static CitaResumenDTO.Paciente paciente(Ficha ficha) {
         String nombre = ((ficha.getNombres() == null ? "" : ficha.getNombres()) + " "
                 + (ficha.getApellidos() == null ? "" : ficha.getApellidos())).trim();

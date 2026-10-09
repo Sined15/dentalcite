@@ -36,12 +36,6 @@ public class Especialidad {
     @Column(nullable = false)
     private Boolean activo;
 
-    /**
-     * RF-09 y RF-10 (v4): la ruta de la imagen con que la especialidad se
-     * presenta en la galería pública. Es una ruta, no un archivo: los SVG de
-     * demostración viajan con el cliente. Puede faltar; el cliente pinta un
-     * marcador.
-     */
     @Column(name = "imagen_url", length = 500)
     private String imagenUrl;
 

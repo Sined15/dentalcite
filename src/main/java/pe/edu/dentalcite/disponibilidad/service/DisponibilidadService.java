@@ -37,15 +37,6 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
-/**
- * Motor de disponibilidad (HU-08 · RF-13, RF-14).
- *
- * <p>Orquesta: valida el rango, resuelve el tratamiento y los odontólogos que
- * pueden atenderlo (RN-08), carga la agenda del rango en un número fijo de
- * consultas y delega el cálculo en {@link MotorDeFranjas}. La separación no es
- * decorativa: las reglas de calendario se prueban sin base de datos y el coste de
- * la consulta no crece con el número de días, que es lo que pide RNF-01.
- */
 @Slf4j
 @Service
 public class DisponibilidadService {
@@ -58,7 +49,6 @@ public class DisponibilidadService {
     private final ConsultorioRepository consultorioRepository;
     private final FeriadoRepository feriadoRepository;
     private final FranjasCache franjasCache;
-    /** RN-05 con umbrales configurables (RN-17); viaja dentro de la agenda. */
     private final ReglasDeReserva reglas;
 
     private final ZoneId zona;
@@ -112,12 +102,6 @@ public class DisponibilidadService {
         return respuesta;
     }
 
-    /**
-     * El rango consultable se acota porque RNF-01 fija su umbral sobre catorce
-     * días: aceptar un año convertiría una consulta de portal en un barrido. El
-     * límite es configuración, no constante, porque la contingencia de R-01
-     * consiste precisamente en bajarlo de catorce a siete.
-     */
     private void validarRango(LocalDate desde, LocalDate hasta) {
         if (desde.isAfter(hasta)) {
             throw new IllegalArgumentException("La fecha inicial debe ser anterior o igual a la final");
@@ -129,13 +113,6 @@ public class DisponibilidadService {
         }
     }
 
-    /**
-     * RN-08: el odontólogo asignado debe poseer la especialidad que exige el
-     * tratamiento. Sin {@code odontologoId} —el «cualquier odontólogo» del
-     * portal— se proponen todos los activos que la tengan; con él, se comprueba
-     * que la tenga. Que no la tenga no es un error del cliente: es una agenda sin
-     * franjas, y así se responde.
-     */
     private List<Odontologo> candidatos(Tratamiento tratamiento, UUID odontologoId) {
         UUID especialidadId = tratamiento.getEspecialidad().getId();
 
@@ -160,16 +137,12 @@ public class DisponibilidadService {
         Map<UUID, List<HorarioAtencion>> horarios = horarioRepository.findByOdontologoIdIn(ids).stream()
                 .collect(Collectors.groupingBy(h -> h.getOdontologo().getId()));
 
-        // Una sola lectura de citas sirve para las dos ocupaciones que el motor
-        // necesita: la del odontólogo (RN-03) y la del pool de consultorios (RN-02).
         List<Cita> citas = citaRepository.findActivasEnRango(inicioRango, finRango);
         Map<UUID, List<Intervalo>> citasPorOdontologo = agrupar(citas,
                 c -> c.getOdontologo().getId(), c -> new Intervalo(c.getInicio(), c.getFin()));
         Map<UUID, List<Intervalo>> citasPorConsultorio = agrupar(citas,
                 c -> c.getConsultorio().getId(), c -> new Intervalo(c.getInicio(), c.getFin()));
 
-        // Un bloqueo puede llevar odontólogo, consultorio o ambos: cuenta en cada
-        // índice donde aparezca.
         List<Bloqueo> bloqueos = bloqueoRepository.findQueSolapanRango(inicioRango, finRango);
         Map<UUID, List<Intervalo>> bloqueosPorOdontologo = new HashMap<>();
         Map<UUID, List<Intervalo>> bloqueosPorConsultorio = new HashMap<>();
@@ -240,18 +213,6 @@ public class DisponibilidadService {
                 .build();
     }
 
-    /**
-     * Consultorios libres en un intervalo concreto (RN-02, RF-14).
-     *
-     * <p>Lo usa la reserva (HU-09) para asignar uno al confirmar. Se expone aquí y
-     * no se recalcula en el servicio de citas porque el criterio debe ser el mismo
-     * que el que decidió ofrecer la franja: si divergieran, el motor propondría
-     * huecos que la reserva no sabría alojar, o al revés.
-     *
-     * @return los identificadores libres, en el orden estable del listado de
-     *         consultorios. La elección de cuál tomar —y el reintento cuando otro
-     *         se adelanta— es de HU-10 (RF-16).
-     */
     @Transactional(readOnly = true)
     public List<UUID> consultoriosLibres(OffsetDateTime inicio, OffsetDateTime fin) {
         List<UUID> operativos = consultorioRepository.findByInoperativoFalse().stream()

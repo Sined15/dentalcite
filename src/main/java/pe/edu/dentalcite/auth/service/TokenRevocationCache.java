@@ -11,20 +11,6 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.UUID;
 
-/**
- * Caché de la marca {@code tokens_validos_desde} de un usuario, sobre la que se
- * apoya la validación de vigencia de cada JWT (HU-05).
- *
- * <p>La clave depende <strong>solo</strong> del usuario, no del instante de
- * emisión del token: así, un único borrado invalida de golpe la caché de todos
- * sus tokens. La versión anterior indexaba por {@code userId:issuedAt} y nunca
- * borraba nada, de modo que un token cerrado con logout —o el de una cuenta
- * recién desactivada— seguía aceptándose hasta cinco minutos, incumpliendo
- * HU-03 y HU-04.
- *
- * <p>PostgreSQL sigue siendo la fuente de autoridad (RNF-12): toda operación
- * sobre Redis es best-effort y su fallo solo cuesta una consulta a la base.
- */
 @Slf4j
 @Component
 @RequiredArgsConstructor
@@ -39,10 +25,6 @@ public class TokenRevocationCache {
         return PREFIJO + usuarioId;
     }
 
-    /**
-     * @return la marca cacheada, o {@code null} si no está en caché o Redis no
-     *         responde; en ambos casos hay que consultar PostgreSQL.
-     */
     public Instant leer(UUID usuarioId) {
         try {
             String valor = redisTemplate.opsForValue().get(clave(usuarioId));
@@ -61,10 +43,6 @@ public class TokenRevocationCache {
         }
     }
 
-    /**
-     * Debe llamarse en todo punto que suba {@code tokensValidosDesde}: logout,
-     * cambio de rol, desactivación y cambio de contraseña.
-     */
     public void invalidar(UUID usuarioId) {
         try {
             redisTemplate.delete(clave(usuarioId));
@@ -73,12 +51,6 @@ public class TokenRevocationCache {
         }
     }
 
-    /**
-     * Variante para usar dentro de un método {@code @Transactional}: espera al
-     * commit antes de borrar. Borrar antes dejaría una ventana en la que otra
-     * petición releería de PostgreSQL la marca <em>anterior</em> y la volvería a
-     * cachear durante cinco minutos, deshaciendo la revocación.
-     */
     public void invalidarTrasCommit(UUID usuarioId) {
         if (!TransactionSynchronizationManager.isSynchronizationActive()) {
             invalidar(usuarioId);

@@ -8,7 +8,6 @@ import lombok.NoArgsConstructor;
 import java.util.List;
 import java.util.UUID;
 
-/** Las franjas libres de un odontólogo dentro del rango consultado. */
 @Data
 @Builder
 @NoArgsConstructor

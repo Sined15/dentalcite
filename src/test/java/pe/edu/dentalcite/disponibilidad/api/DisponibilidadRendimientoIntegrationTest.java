@@ -46,14 +46,19 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 /**
  * RNF-01: «la consulta de disponibilidad para un rango de catorce días responderá
- * con p95 ≤ 1,5 s sobre la agenda de cinco odontólogos con ocupación del 70 % y
+ * con p95 ≤ 1,5 s sobre la agenda de siete odontólogos con ocupación del 70 % y
  * caché fría».
  *
- * <p>No corre en cada construcción: sembrar cinco agendas de catorce días y medir
+ * <p>Son siete y no cinco porque siete son los odontólogos de la clínica: cinco
+ * son los consultorios, y confundirlos medía una carga más ligera que la que el
+ * requisito enuncia. La ocupación no cambia al subirlos, porque la limitan los
+ * consultorios; lo que crece es la agenda que el motor recorre, que es el coste
+ * que se quiere medir.
+ *
+ * <p>No corre en cada construcción: sembrar siete agendas de catorce días y medir
  * añade cerca de un minuto, y una máquina cargada la volvería intermitente.
  * {@code ./mvnw verify "-Dperf=true"} la activa cuando se quiere la evidencia,
- * que es como la pide la Definición de Terminado y como se comparará contra el
- * margen del 20 % en los Sprints 3 y 4.
+ * que es como la pide la Definición de Terminado.
  *
  * <p>La medición es «caché fría» de verdad: cada iteración invalida la caché de
  * franjas antes de cronometrar, de modo que se mide el cálculo completo y no un
@@ -68,10 +73,10 @@ class DisponibilidadRendimientoIntegrationTest {
     private static final Logger log = LoggerFactory.getLogger(DisponibilidadRendimientoIntegrationTest.class);
 
     private static final ZoneId ZONA = ZoneId.of("America/Lima");
-    private static final int ODONTOLOGOS = 5;
+    private static final int ODONTOLOGOS = 7;
     private static final int DIAS = 14;
     private static final int MEDICIONES = 20;
-    /** Once de las dieciseis medias horas de la jornada: 33 de 48 plazas, ~70 %. */
+    /** Once de las dieciseis medias horas de la jornada: 55 de 80 plazas, ~70 %. */
     private static final int FRANJAS_OCUPADAS = 11;
     private static final long UMBRAL_P95_MS = 1500;
 
@@ -141,7 +146,7 @@ class DisponibilidadRendimientoIntegrationTest {
             odontologos.add(odontologoId);
 
             // Jornada de ocho horas los siete días de la semana: el rango completo
-            // de catorce días queda cubierto para los cinco.
+            // de catorce días queda cubierto para los siete.
             for (int dia = 1; dia <= 7; dia++) {
                 horarios.add(horarioRepository.save(HorarioAtencion.builder()
                         .odontologo(odontologo)
@@ -214,7 +219,7 @@ class DisponibilidadRendimientoIntegrationTest {
 
     @Test
     @WithMockUser(authorities = "SCOPE_PACIENTE")
-    void consultarDisponibilidad_conCincoAgendasAlSetentaPorCientoYCacheFria_cumpleElP95() throws Exception {
+    void consultarDisponibilidad_conSieteAgendasAlSetentaPorCientoYCacheFria_cumpleElP95() throws Exception {
         medirP95("con sesion");
     }
 
@@ -224,7 +229,7 @@ class DisponibilidadRendimientoIntegrationTest {
      * pero el cálculo es el mismo, y es el cálculo lo que se mide.
      */
     @Test
-    void consultarDisponibilidad_sinSesionConCincoAgendasAlSetentaPorCientoYCacheFria_cumpleElP95() throws Exception {
+    void consultarDisponibilidad_sinSesionConSieteAgendasAlSetentaPorCientoYCacheFria_cumpleElP95() throws Exception {
         medirP95("sin sesion");
     }
 
@@ -248,7 +253,9 @@ class DisponibilidadRendimientoIntegrationTest {
         long p95 = muestras.get((int) Math.ceil(MEDICIONES * 0.95) - 1);
         long mediana = muestras.get(MEDICIONES / 2);
 
-        // Queda en el log para la comparación del margen del 20 % en los Sprints 3 y 4.
+        // Queda en el log: las cifras de cada Sprint se publican aunque no sostengan
+        // un techo de degradación, que el plan retiró por no ser verificable entre
+        // máquinas distintas.
         log.info("RNF-01 · disponibilidad {} de {} dias, {} odontologos, cache fria: mediana {} ms, p95 {} ms (umbral {} ms)",
                 quien, DIAS, ODONTOLOGOS, mediana, p95, UMBRAL_P95_MS);
 

@@ -7,7 +7,6 @@ import lombok.NoArgsConstructor;
 
 import java.util.List;
 
-/** Cuerpo del 409 con el que se rechaza un bloqueo que alcanza citas activas. */
 @Data
 @Builder
 @NoArgsConstructor

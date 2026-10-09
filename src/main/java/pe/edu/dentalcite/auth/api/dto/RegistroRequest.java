@@ -17,7 +17,6 @@ public class RegistroRequest {
     @NotBlank(message = "Los apellidos no pueden estar vacíos")
     private String apellidos;
 
-    // RN-10: el paciente se identifica por su tipo y número de documento.
     @Pattern(regexp = "^(DNI|CE|PASAPORTE)$", message = "El tipo de documento debe ser DNI, CE o PASAPORTE")
     private String tipoDocumento = "DNI";
 

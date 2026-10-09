@@ -12,16 +12,12 @@ import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 
-/**
- * El catálogo cerrado de cuidados: leerlo para elegir, y comprobar lo elegido.
- */
 @Service
 @RequiredArgsConstructor
 public class RecomendacionService {
 
     private final RecomendacionRepository recomendacionRepository;
 
-    /** Las vigentes, en el orden en que se leen. Son pocas: sin paginar. */
     @Transactional(readOnly = true)
     public List<RecomendacionDTO> catalogo() {
         return recomendacionRepository.findByActivaTrueOrderByDescripcionAsc().stream()
@@ -29,16 +25,6 @@ public class RecomendacionService {
                 .toList();
     }
 
-    /**
-     * Traduce los identificadores que llegan en un cierre a las recomendaciones que
-     * nombran, y rechaza la petición si alguno no resuelve.
-     *
-     * <p>Rechazar en bloque y no ignorar lo que no existe: quien cierra la sesión
-     * está diciendo qué cuidados indicó, y guardar solo los que se reconocen dejaría
-     * la indicación a medias sin que nadie se enterara. Que el identificador no
-     * exista y que nombre una recomendación retirada del catálogo se tratan igual:
-     * en los dos casos no es algo que hoy se pueda indicar.
-     */
     @Transactional(readOnly = true)
     public Set<Recomendacion> resolverVigentes(List<UUID> ids) {
         List<UUID> pedidos = ids.stream().distinct().toList();

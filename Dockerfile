@@ -6,9 +6,7 @@ COPY mvnw pom.xml ./
 RUN chmod +x mvnw && ./mvnw dependency:go-offline || true
 
 COPY src ./src
-# Build the application
-# chmod defensivo: en un checkout desde Windows el bit de ejecucion puede perderse
-# y la etapa de build fallaria con 'permission denied'.
+
 RUN chmod +x mvnw && ./mvnw clean package -DskipTests
 
 FROM eclipse-temurin:21-jre-alpine

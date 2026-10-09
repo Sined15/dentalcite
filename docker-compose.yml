@@ -1,13 +1,8 @@
-# HU-01 / RNF-11: el sistema completo se levanta con `docker compose up`, sin
-# pasos manuales. Los cuatro servicios del informe son API, cliente, PostgreSQL
-# y Redis.
 services:
   api:
     build: .
     ports:
       - "8080:8080"
-    # Sin `condition: service_healthy` la API arrancaba antes de que PostgreSQL
-    # aceptase conexiones y Flyway fallaba en un `up` en frio.
     depends_on:
       postgres:
         condition: service_healthy
@@ -19,54 +14,30 @@ services:
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-admin_password}
       SPRING_DATA_REDIS_HOST: redis
       SPRING_DATA_REDIS_PORT: 6379
-      # Valor por defecto SOLO para desarrollo local, porque HU-01 exige que el
-      # sistema levante con una sola orden y sin pasos manuales (RNF-11).
-      #
-      # No reabre el agujero que cerro el commit anterior: el que se quito fue el
-      # de `application.yml`, que viaja dentro del jar a todos los entornos. La
-      # aplicacion sigue negandose a arrancar sin `jwt.secret`, asi que cualquier
-      # despliegue que no pase por este archivo falla si olvida la variable.
-      # Para un despliegue real, exportar JWT_SECRET o usar un .env propio.
+
       JWT_SECRET: ${JWT_SECRET:-clave-de-desarrollo-local-cambiar-en-despliegue-000}
-      # Origenes del cliente autorizados a consumir la API desde el navegador.
+
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:4200}
-      # RN-17: los umbrales de negocio se ajustan aqui, sin recompilar.
+
       APP_ZONA_HORARIA: ${APP_ZONA_HORARIA:-America/Lima}
       APP_CITAS_ANTELACION_MINIMA_HORAS: ${APP_CITAS_ANTELACION_MINIMA_HORAS:-2}
       APP_CITAS_HORIZONTE_MAXIMO_DIAS: ${APP_CITAS_HORIZONTE_MAXIMO_DIAS:-90}
       APP_CITAS_MAXIMO_ACTIVAS: ${APP_CITAS_MAXIMO_ACTIVAS:-3}
-      # RN-06 (HU-15): hasta cuando cancela el paciente por su cuenta. Recepcion
-      # no tiene ventana. Tiene que estar declarada aqui y no solo en el
-      # application.yml: Compose solo interpola las variables que este archivo
-      # nombra, asi que sin esta linea ponerla en el .env no llegaria al
-      # contenedor y el umbral dejaria de ser ajustable sin recompilar.
       APP_CITAS_ANTELACION_CANCELACION_HORAS: ${APP_CITAS_ANTELACION_CANCELACION_HORAS:-24}
-      # HU-10: vida del bloqueo distribuido de franja en Redis.
+
       APP_CITAS_BLOQUEO_TTL: ${APP_CITAS_BLOQUEO_TTL:-10}
-      # Palanca de la contingencia de R-01: bajar de 14 a 7 dias.
+
       APP_DISPONIBILIDAD_DIAS_MAXIMOS: ${APP_DISPONIBILIDAD_DIAS_MAXIMOS:-14}
       APP_DISPONIBILIDAD_CACHE_TTL: ${APP_DISPONIBILIDAD_CACHE_TTL:-60}
       TZ: UTC
 
-  # Cliente Angular, OPCIONAL. HU-01 pide que este archivo levante la API,
-  # PostgreSQL y Redis; el cliente «arranca con la orden equivalente en el suyo»,
-  # y tiene su propio compose en ../dentalcite-ui.
-  #
-  # Va tras un perfil porque `build` apunta a una carpeta hermana: sin el, un
-  # clon de solo este repositorio no podria levantar nada, al intentar construir
-  # un contexto que no existe.
-  #
-  #   docker compose up                     -> API + PostgreSQL + Redis
-  #   docker compose --profile cliente up   -> lo anterior mas el cliente
-  #
-  # El puerto 4200 no es negociable: es el unico origen que `cors.allowed-origins`
-  # admite por defecto. La URL de la API la lleva el bundle desde
-  # `src/environments/environment.ts`, resuelta en el navegador, no aqui.
   client:
     profiles: ["cliente"]
     image: ${CLIENT_IMAGE:-dentalcite/client:latest}
     build:
       context: ../dentalcite-ui
+      args:
+        CONFIGURACION: local
     ports:
       - "4200:80"
     depends_on:

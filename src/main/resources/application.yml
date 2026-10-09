@@ -1,5 +1,3 @@
-# Render asigna el puerto por la variable PORT; el 8080 de respaldo mantiene
-# intactos el desarrollo local y docker-compose.
 server:
   port: ${PORT:8080}
 
@@ -53,32 +51,14 @@ logging:
 
 # Configuración funcional de la clínica
 app:
-  # Los horarios de atención se declaran como hora local (LocalTime) y las citas y
-  # los bloqueos se guardan en UTC (TIMESTAMPTZ). El motor de disponibilidad
-  # (HU-08) tiene que comparar unos con otros, y sin una zona de clínica declarada
-  # esa comparación no está definida. Perú no aplica horario de verano.
   zona-horaria: ${APP_ZONA_HORARIA:America/Lima}
-  # RN-17: los umbrales de RN-05, RN-06 y RN-07 se declaran como configuración
-  # externa, ajustable sin recompilar. Antes eran constantes en el código, de
-  # modo que mover la antelación mínima obligaba a reconstruir el artefacto.
   citas:
     antelacion-minima-horas: ${APP_CITAS_ANTELACION_MINIMA_HORAS:2}
     horizonte-maximo-dias: ${APP_CITAS_HORIZONTE_MAXIMO_DIAS:90}
     maximo-activas-por-paciente: ${APP_CITAS_MAXIMO_ACTIVAS:3}
-    # RN-06 (HU-15): hasta cuándo puede el paciente cancelar por su cuenta. Pasada
-    # esa antelación la cancelación corresponde a recepción, que no tiene ventana.
-    # Es el tercer umbral que RN-17 saca a configuración.
     antelacion-cancelacion-horas: ${APP_CITAS_ANTELACION_CANCELACION_HORAS:24}
-    # HU-10: cuánto vive el bloqueo distribuido de una franja. Corto a propósito,
-    # para que un proceso que muera con el bloqueo tomado no deje la franja
-    # irreservable más que unos segundos. Se declara aquí, y no solo como valor
-    # por defecto en el código, porque es el mismo tipo de palanca de despliegue
-    # que el resto de umbrales de RN-17.
     bloqueo-ttl-segundos: ${APP_CITAS_BLOQUEO_TTL:10}
   disponibilidad:
-    # RNF-01 fija su umbral sobre catorce días. Es configuración y no una constante
-    # porque la contingencia del riesgo R-01 consiste exactamente en bajarlo a
-    # siete: un cambio de despliegue, no de código.
     dias-maximos: ${APP_DISPONIBILIDAD_DIAS_MAXIMOS:14}
     cache-ttl-segundos: ${APP_DISPONIBILIDAD_CACHE_TTL:60}
 
@@ -89,13 +69,5 @@ springdoc:
   api-docs:
     path: /v3/api-docs
 
-# Configuración de Seguridad
-# Sin valor por defecto a propósito: si falta JWT_SECRET la aplicación no
-# arranca. Un default aquí viaja dentro del jar a todos los entornos, así que
-# un despliegue que olvidase la variable firmaría con una clave que cualquiera
-# puede leer en el repositorio. El valor de desarrollo lo aporta el entorno,
-# no el artefacto: docker-compose.yml para `docker compose up`, y el
-# spring-boot-maven-plugin para `./mvnw spring-boot:run` (RNF-11: una sola
-# orden, sin pasos manuales, sin secreto versionado).
 jwt:
   secret: ${JWT_SECRET}

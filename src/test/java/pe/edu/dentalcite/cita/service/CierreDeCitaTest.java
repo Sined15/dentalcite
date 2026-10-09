@@ -103,7 +103,7 @@ class CierreDeCitaTest {
                 .inicio(fin.minusMinutes(30)).fin(fin)
                 .estado(estado)
                 .build();
-        lenient().when(citaRepository.findById(cita.getId())).thenReturn(Optional.of(cita));
+        lenient().when(citaRepository.findParaTransicion(cita.getId())).thenReturn(Optional.of(cita));
         return cita;
     }
 
@@ -273,7 +273,7 @@ class CierreDeCitaTest {
     @Test
     void registrarResultado_sobreUnaCitaInexistente_lanzaResourceNotFound() {
         UUID inventada = UUID.randomUUID();
-        when(citaRepository.findById(inventada)).thenReturn(Optional.empty());
+        when(citaRepository.findParaTransicion(inventada)).thenReturn(Optional.empty());
 
         assertThrows(ResourceNotFoundException.class,
                 () -> servicio.registrarResultado(inventada, "ATENDIDA"));

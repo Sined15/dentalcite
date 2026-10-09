@@ -11,23 +11,6 @@ import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.UUID;
 
-/**
- * Cuerpo de la reserva (HU-09 · RF-15, HU-14 · RF-17).
- *
- * <p><strong>El paciente es opcional y no siempre se puede mandar.</strong> Para
- * el PACIENTE la ficha sale del token y {@code pacienteId} esta prohibido: HU-09
- * es «el paciente para si mismo», y aceptarlo —aunque coincidiera con el suyo—
- * daria una forma de sondear identificadores ajenos. Para RECEPCIONISTA y
- * ADMINISTRADOR es al reves: {@code pacienteId} es obligatorio, porque su cuenta
- * no tiene una ficha para la que reservar. Quien decide es
- * {@code cita.service.AutorDeLaReserva}, no la validacion de este DTO: la regla
- * depende del rol de quien llama y aqui no se conoce.
- *
- * <p>La franja viaja como fecha y hora <em>locales de la clinica</em>, no como un
- * instante ISO. El navegador puede estar en otro huso, y quien posee la zona es
- * el servidor (`app.zona-horaria`): es exactamente el formato en que la consulta
- * de disponibilidad las entrego.
- */
 @Data
 @Builder
 @NoArgsConstructor

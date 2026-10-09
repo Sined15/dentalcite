@@ -38,19 +38,12 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(new MessageResponse(ex.getMessage()));
     }
 
-    // RN-03 / HU-07: el 409 de un bloqueo bloqueado por citas activas necesita
-    // llevar la lista de esas citas, no solo un mensaje.
     @ExceptionHandler(CitasActivasEnRangoException.class)
     public ResponseEntity<BloqueoConflictoResponse> handleCitasActivasEnRango(CitasActivasEnRangoException ex) {
         return ResponseEntity.status(HttpStatus.CONFLICT)
                 .body(new BloqueoConflictoResponse(ex.getMessage(), ex.getCitasActivas()));
     }
 
-    /**
-     * HU-09 / RN-05: la franja se pide fuera de la ventana reservable. No es un
-     * 400 —la peticion esta bien formada— ni un 409 —no choca con ningun otro
-     * recurso—: es una regla de negocio incumplida, que es lo que el 422 nombra.
-     */
     @ExceptionHandler(ReglaIncumplidaException.class)
     public ResponseEntity<MessageResponse> handleReglaIncumplida(ReglaIncumplidaException ex) {
         return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(new MessageResponse(ex.getMessage()));
@@ -71,26 +64,12 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.NOT_FOUND).body(new MessageResponse(ex.getMessage()));
     }
 
-    // Red de seguridad para condiciones de carrera en validaciones check-then-act
-    // (p. ej. dos registros concurrentes con el mismo correo o código): la
-    // restricción UNIQUE de la BD es la que realmente garantiza la unicidad, y
-    // sin este handler la violación se filtraría como un 500 crudo.
     @ExceptionHandler(DataIntegrityViolationException.class)
     public ResponseEntity<MessageResponse> handleDataIntegrityViolationException(DataIntegrityViolationException ex) {
         return ResponseEntity.status(HttpStatus.CONFLICT)
                 .body(new MessageResponse("El recurso ya existe o viola una restricción de integridad de datos."));
     }
 
-    /**
-     * Los servicios que necesitan fijar el estado a mano —el 409 de un horario
-     * solapado (RN-03) y los 403 de {@code OdontologoOwnershipGuard} (RNF-04)—
-     * lanzan {@link ResponseStatusException}. Sin este manejador no pasaban por
-     * aqui: salian por el {@code /error} por defecto de Spring, con un cuerpo
-     * {@code {timestamp, status, error, path}} que no lleva el motivo. El cliente
-     * solo entiende {@code {message}}, asi que al usuario que solapaba un tramo
-     * no se le mostraba «El horario se solapa con uno existente», sino la ruta y
-     * la marca de tiempo de la peticion.
-     */
     @ExceptionHandler(ResponseStatusException.class)
     public ResponseEntity<MessageResponse> handleResponseStatusException(ResponseStatusException ex) {
         String motivo = ex.getReason() == null ? ex.getStatusCode().toString() : ex.getReason();

@@ -11,15 +11,6 @@ import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 
-/**
- * RN-11: una cuenta de rol ODONTOLOGO necesita el número de documento, porque de
- * él sale la ficha que después exige su registro como odontólogo (RF-10).
- *
- * <p>Restricción de clase porque depende de dos campos, con
- * {@code addPropertyNode} para que el 400 señale {@code documento} y un
- * formulario pueda marcar ese control. El tipo de documento es opcional: el
- * servicio lo resuelve a DNI cuando falta.
- */
 @Target(ElementType.TYPE)
 @Retention(RetentionPolicy.RUNTIME)
 @Constraint(validatedBy = DocumentoDeOdontologo.Validador.class)

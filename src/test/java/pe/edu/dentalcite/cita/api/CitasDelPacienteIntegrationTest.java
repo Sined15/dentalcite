@@ -126,7 +126,14 @@ class CitasDelPacienteIntegrationTest {
         brunoId = nuevaCuenta("Bruno Diaz", "PACIENTE", fichaBruno);
         recepcionistaId = nuevaCuenta("Recepcion", "RECEPCIONISTA", null);
 
-        consultorio = consultorioRepository.findByInoperativoFalse().get(0);
+        // Propio y no el primero de la semilla: la agenda sembrada tiene citas
+        // confirmadas en los próximos días hábiles, y según la hora a la que
+        // corra la prueba la cita de doce horas vista caía encima de una.
+        consultorio = consultorioRepository.save(Consultorio.builder()
+                .id(UUID.randomUUID())
+                .nombre("Sala de citas propias " + UUID.randomUUID().toString().substring(0, 8))
+                .inoperativo(false)
+                .build());
     }
 
     private Ficha nuevaFicha(String nombres, String apellidos) {
@@ -194,6 +201,7 @@ class CitasDelPacienteIntegrationTest {
         fichaRepository.deleteById(fichaBruno.getId());
         fichaRepository.deleteById(fichaOdontologo.getId());
         especialidadRepository.deleteById(especialidadId);
+        consultorioRepository.delete(consultorio);
         citas.clear();
     }
 

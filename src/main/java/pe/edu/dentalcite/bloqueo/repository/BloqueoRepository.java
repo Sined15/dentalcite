@@ -12,20 +12,9 @@ import java.util.UUID;
 
 public interface BloqueoRepository extends JpaRepository<Bloqueo, UUID> {
 
-    /**
-     * El listado compone el nombre del odontólogo y del consultorio de cada
-     * bloqueo; sin el grafo, cada fila dispararía sus propias consultas para
-     * resolver esas dos asociaciones LAZY.
-     */
     @EntityGraph(attributePaths = {"odontologo", "consultorio"})
     List<Bloqueo> findAll();
 
-    /**
-     * Bloqueos vigentes que solapan el rango consultado, de odontólogo y de
-     * consultorio a la vez (RN-02, RN-03). El solapamiento es el mismo de
-     * intervalos semiabiertos que ya usan {@code CitaRepository} y
-     * {@code HorarioAtencionRepository.findOverlappingHorarios}.
-     */
     @EntityGraph(attributePaths = {"odontologo", "consultorio"})
     @Query("""
             SELECT b FROM Bloqueo b

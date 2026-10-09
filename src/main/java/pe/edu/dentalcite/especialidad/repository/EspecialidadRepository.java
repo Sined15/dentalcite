@@ -11,9 +11,5 @@ public interface EspecialidadRepository extends JpaRepository<Especialidad, UUID
     Optional<Especialidad> findByNombreIgnoreCase(String nombre);
     boolean existsByNombreIgnoreCase(String nombre);
 
-    /**
-     * HU-06 (v4): la galería pública. Solo las activas, porque el visitante no
-     * tiene por qué ver lo que la clínica dio de baja.
-     */
     List<Especialidad> findByActivoTrueOrderByNombreAsc();
 }

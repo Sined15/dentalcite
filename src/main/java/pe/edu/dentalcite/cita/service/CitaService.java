@@ -26,49 +26,10 @@ import java.time.ZoneId;
 import java.util.List;
 import java.util.UUID;
 
-/**
- * Reserva de cita, desde el portal (HU-09 · RF-15) y desde recepción (HU-14 ·
- * RF-17), con exclusión mutua (HU-10 · RF-16, RN-01, RN-02).
- *
- * <p>Para quién se reserva y quién lo pide lo decide {@link AutorDeLaReserva}:
- * el paciente reserva para sí mismo y su ficha sale del token, mientras que
- * recepción indica la ficha en el cuerpo. La operación es la misma —las mismas
- * reglas de calendario, la misma exclusión mutua— y solo cambia de dónde sale
- * el paciente, así que no se duplica.
- *
- * <p>La comprobación de que la franja existe <em>no se reimplementa aquí</em>: se
- * le pregunta al motor de disponibilidad. Horario, bloqueos, feriados, ocupación y
- * especialidad son reglas de calendario y ya viven en un sitio.
- *
- * <h2>Cómo se evita la doble reserva</h2>
- *
- * Dos capas, y el orden importa:
- *
- * <ol>
- *   <li>{@link BloqueoDeFranja} toma en Redis un bloqueo por odontólogo y franja.
- *       Es lo que impide que dos pacientes elijan al mismo odontólogo a la misma
- *       hora en el mismo instante: el segundo recibe 409 sin llegar a tocar la
- *       base.</li>
- *   <li>Las restricciones de exclusión de PostgreSQL
- *       ({@code V13__exclusion_de_citas.sql}) rechazan el solapamiento pase lo que
- *       pase. <strong>Son la garantía</strong>; Redis solo evita el trabajo
- *       inútil. RNF-12 lo exige así, y por eso con Redis detenido se sigue
- *       creando exactamente una cita.</li>
- * </ol>
- *
- * <p>Cuando la que choca es la restricción del <em>consultorio</em>, la franja
- * sigue siendo del paciente: se reintenta con otro consultorio libre (RF-16). Si
- * la que choca es la del <em>odontólogo</em>, no hay nada que reintentar.
- */
 @Slf4j
 @Service
 public class CitaService {
 
-    /**
-     * Cuántas veces se repite el INSERT sobre el mismo consultorio cuando
-     * PostgreSQL aborta la transacción por interbloqueo. Uno basta: el ciclo de
-     * espera lo forman dos reservas y al romperlo la otra ya ha terminado.
-     */
     private static final int REINTENTOS_TRAS_INTERBLOQUEO = 1;
 
     private final CitaRepository citaRepository;
@@ -104,18 +65,6 @@ public class CitaService {
         this.zona = ZoneId.of(zonaHoraria);
     }
 
-    /**
-     * <strong>No es {@code @Transactional} a propósito.</strong> El reintento de
-     * RF-16 necesita una transacción nueva por intento, porque un
-     * {@code DataIntegrityViolationException} marca la suya como rollback-only;
-     * envolver todo esto en una sola transacción haría imposible reintentar. Cada
-     * lectura abre la suya y el INSERT vive en {@link RegistroDeCita}.
-     *
-     * <p>El orden de las comprobaciones es contrato: RN-05 y RN-07 se evalúan
-     * <em>antes</em> de mirar la disponibilidad, porque si no una franja fuera de
-     * la ventana saldría como «ya no disponible» en vez de con el 422 que el
-     * criterio de aceptación exige.
-     */
     public CitaResponseDTO reservar(CitaRequestDTO peticion) {
         AutorDeLaReserva.Reserva autor = autorDeLaReserva.resolver(peticion.getPacienteId());
         UUID fichaId = autor.fichaId();
@@ -134,7 +83,6 @@ public class CitaService {
         verificarVentana(inicio);
         verificarCuota(fichaId);
 
-        // HU-10: nadie más puede estar reservando este odontólogo a esta hora.
         BloqueoDeFranja.Adquisicion bloqueo = bloqueoDeFranja.tomar(odontologo.getId(), inicio);
         if (!bloqueo.permiteSeguir()) {
             throw new IllegalStateException(
@@ -151,16 +99,6 @@ public class CitaService {
         }
     }
 
-    /**
-     * RF-16: «si la franja se ha ocupado entre la consulta y la confirmación, el
-     * sistema reintenta con otro consultorio libre y, si no queda ninguno, informa
-     * y recalcula la disponibilidad».
-     *
-     * <p>El bucle está acotado por el número de consultorios de la clínica, así
-     * que no puede degenerar. Cada intento va en su propia transacción
-     * ({@link RegistroDeCita}); si no, el primer rechazo dejaría la transacción
-     * inservible para el segundo intento.
-     */
     private CitaResponseDTO crearReintentandoConsultorio(UUID fichaId, UUID autorId,
             Odontologo odontologo, Tratamiento tratamiento, OffsetDateTime inicio,
             OffsetDateTime fin, LocalTime hora) {
@@ -187,14 +125,6 @@ public class CitaService {
                         + "Vuelve a consultar la disponibilidad.");
     }
 
-    /**
-     * Un intento sobre un consultorio concreto.
-     *
-     * @return la cita creada, o {@code null} si ese consultorio ya no sirve y hay
-     *         que probar el siguiente.
-     * @throws IllegalStateException si quien se adelantó fue en la agenda del
-     *         odontólogo, donde no hay nada que reintentar.
-     */
     private Cita intentarCrear(UUID fichaId, UUID autorId, Odontologo odontologo,
             Tratamiento tratamiento, UUID consultorioId, OffsetDateTime inicio, OffsetDateTime fin) {
 
@@ -205,12 +135,6 @@ public class CitaService {
 
             } catch (DataAccessException e) {
                 if (ConflictoDeSolape.esInterbloqueo(e)) {
-                    // Carrera perdida, no petición inválida: quien la pierde debe
-                    // acabar con su 201 si aún queda sitio, o con un 409 si no,
-                    // nunca con un 500 (criterio 2 de HU-10). Se reintenta el
-                    // mismo consultorio, porque el interbloqueo no dice qué
-                    // restricción lo provocó y descartarlo de entrada podría tirar
-                    // el único hueco libre.
                     log.debug("Interbloqueo al insertar en el consultorio {}; intento {}",
                             consultorioId, intento);
                     continue;
@@ -236,7 +160,6 @@ public class CitaService {
         return null;
     }
 
-    /** RN-05, con los umbrales que RN-17 saca a configuración. */
     private void verificarVentana(OffsetDateTime inicio) {
         OffsetDateTime ahora = OffsetDateTime.now(zona);
         if (reglas.demasiadoPronto(inicio, ahora)) {
@@ -249,7 +172,6 @@ public class CitaService {
         }
     }
 
-    /** RN-07: la cuota cuenta activas, así que una cita vencida deja de pesar. */
     private void verificarCuota(UUID fichaId) {
         long activas = citaRepository.countActivasDeFicha(fichaId);
         if (activas >= reglas.maximoActivasPorPaciente()) {
@@ -258,12 +180,6 @@ public class CitaService {
         }
     }
 
-    /**
-     * Se le pregunta al motor por ese día y ese odontólogo: si la hora pedida no
-     * está entre las que ofrece, no se reserva. Es lo que hace imposible reservar
-     * fuera de horario, sobre un bloqueo, en feriado o sin consultorio, sin
-     * reimplementar ninguna de esas reglas.
-     */
     private void verificarFranjaOfrecida(CitaRequestDTO peticion) {
         DisponibilidadResponseDTO oferta = disponibilidadService.consultar(
                 peticion.getTratamientoId(), peticion.getOdontologoId(), peticion.getFecha(), peticion.getFecha());

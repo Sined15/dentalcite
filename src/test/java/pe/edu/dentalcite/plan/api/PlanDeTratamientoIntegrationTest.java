@@ -296,6 +296,15 @@ class PlanDeTratamientoIntegrationTest {
     }
 
     @Test
+    void crear_conMasDeSesentaSesiones_retornaBadRequest() throws Exception {
+        // El plan nace con todas sus sesiones: sin tope, una sola petición podía
+        // llenar la base de filas.
+        crear(peticion(ortodonciaId, 61), luisUsuarioId, "SCOPE_ODONTOLOGO")
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.sesionesPrevistas").exists());
+    }
+
+    @Test
     void crear_conUnPacienteQueNoExiste_retornaNotFound() throws Exception {
         PlanRequestDTO inventado = peticion(ortodonciaId, 3);
         inventado.setPacienteId(UUID.randomUUID());

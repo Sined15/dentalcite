@@ -196,4 +196,25 @@ class SesionIntegrationTest {
         mockMvc.perform(get("/api/v1/tratamientos").header("Authorization", bearer(token)))
                 .andExpect(status().isOk());
     }
+
+    @Test
+    void cambiarPasswordPropio_conUnaNuevaDeMenosDeOchoCaracteres_retorna400YNoLaCambia() throws Exception {
+        // El mínimo de ocho caracteres vale igual al registrarse, al recibir una
+        // provisional y al cambiarla: exigirlo solo en el formulario dejaba ponerse
+        // una de un carácter llamando a la API directamente.
+        Usuario usuario = crearCuenta("PACIENTE", false);
+        String token = jwtService.generateToken(usuario);
+
+        mockMvc.perform(post("/api/v1/usuarios/me/password")
+                .header("Authorization", bearer(token))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"passwordActual\": \"Password123\", \"nuevoPassword\": \"corta\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.nuevoPassword").exists());
+
+        // No cambió nada: el token sigue valiendo, porque cambiar la contraseña lo
+        // habría revocado.
+        mockMvc.perform(get("/api/v1/usuarios/me").header("Authorization", bearer(token)))
+                .andExpect(status().isOk());
+    }
 }

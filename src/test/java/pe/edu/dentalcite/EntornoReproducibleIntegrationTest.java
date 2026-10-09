@@ -247,6 +247,44 @@ class EntornoReproducibleIntegrationTest {
     }
 
     /**
+     * Toda alta de paciente registra su consentimiento, y las fichas sembradas
+     * representan altas: sin él, inspeccionar los consentimientos de la
+     * demostración daba pacientes que nunca lo habían dado. Se cuenta por
+     * documento, como el resto de la semilla, y la paciente de la cuenta de
+     * demostración entra también.
+     */
+    @Test
+    void alArrancar_cadaPacienteSembradoTieneSuConsentimiento() {
+        for (String documento : PACIENTES_DEL_CASO) {
+            assertTrue(consentimientosDe(documento) >= 1,
+                    "el paciente de demostración con documento " + documento + " no tiene consentimiento");
+        }
+        assertTrue(consentimientosDe("40987654") >= 1,
+                "la paciente de la cuenta de demostración no tiene consentimiento");
+    }
+
+    private int consentimientosDe(String documento) {
+        Integer n = jdbcTemplate.queryForObject("""
+                SELECT COUNT(*)
+                FROM consentimientos c
+                JOIN fichas f ON f.id = c.ficha_id
+                WHERE f.documento = ?
+                """, Integer.class, documento);
+        return n == null ? 0 : n;
+    }
+
+    @Test
+    void alArrancar_losFeriadosCubrenElHorizonteDeReserva() {
+        // El motor ofrecía el 9 de diciembre como un día más, y desde octubre los
+        // noventa días de la reserva entran en un año sin ningún feriado.
+        for (String fecha : List.of("2026-12-09", "2027-01-01", "2027-03-25", "2027-03-26")) {
+            Integer n = jdbcTemplate.queryForObject(
+                    "SELECT COUNT(*) FROM feriados WHERE fecha = CAST(? AS date)", Integer.class, fecha);
+            assertEquals(1, n == null ? -1 : n, "falta el feriado del " + fecha);
+        }
+    }
+
+    /**
      * `V1` sembró las cuentas sin nombre y `V9` las bautizó con el trozo del correo
      * para poder declarar la columna NOT NULL. El efecto era que la cuenta
      * «paciente» y la ficha «Rosa Delgado» eran la misma persona sin que nada lo

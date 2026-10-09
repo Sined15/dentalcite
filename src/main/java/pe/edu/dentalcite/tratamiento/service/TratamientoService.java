@@ -3,8 +3,10 @@ package pe.edu.dentalcite.tratamiento.service;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import pe.edu.dentalcite.common.api.Ordenacion;
 import pe.edu.dentalcite.common.exception.ResourceNotFoundException;
 import pe.edu.dentalcite.especialidad.domain.Especialidad;
 import pe.edu.dentalcite.especialidad.repository.EspecialidadRepository;
@@ -14,18 +16,23 @@ import pe.edu.dentalcite.tratamiento.api.dto.TratamientoResponseDTO;
 import pe.edu.dentalcite.tratamiento.domain.Tratamiento;
 import pe.edu.dentalcite.tratamiento.repository.TratamientoRepository;
 
+import java.util.Set;
 import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
 public class TratamientoService {
 
+    /** Por lo que tiene sentido ordenar el listado; un orden desconocido se descarta. */
+    private static final Set<String> ORDENABLES = Set.of("codigo", "nombre", "duracionMinutos", "activo", "creadoEn");
+
     private final TratamientoRepository tratamientoRepository;
     private final EspecialidadRepository especialidadRepository;
 
     @Transactional(readOnly = true)
     public Page<TratamientoResponseDTO> listarTratamientos(Pageable pageable) {
-        return tratamientoRepository.findAll(pageable).map(this::mapTratamiento);
+        return tratamientoRepository.findAll(Ordenacion.cribar(pageable, ORDENABLES, Sort.unsorted()))
+                .map(this::mapTratamiento);
     }
 
     /** RN-04: la duración de la cita es la del tratamiento, múltiplo de quince minutos. */

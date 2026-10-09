@@ -1,6 +1,8 @@
 package pe.edu.dentalcite.usuario.service;
 
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -28,6 +30,7 @@ import org.springframework.data.domain.Sort;
 public class UsuarioService {
 
     private static final String ROL_ODONTOLOGO = "ODONTOLOGO";
+    private static final String ROL_PACIENTE = "PACIENTE";
 
     private final UsuarioRepository usuarioRepository;
     private final PasswordEncoder passwordEncoder;
@@ -90,39 +93,12 @@ public class UsuarioService {
         UsuarioResponseDTO respuesta = mapToDTO(usuarioRepository.save(usuario));
 
         if (!laIndicaElAdministrador) {
-            // HU-04 crea la cuenta «con correo, nombre y uno de los cuatro roles», sin
-            // contraseña, y exige que «podrá iniciar sesión». La generada solo existe
-            // en claro en este instante —después es un hash irreversible—, así que si
-            // no se devuelve aquí nadie puede entrar nunca a la cuenta recién creada.
-            // Cuando la indica el administrador no se le repite: ya la conoce.
             respuesta.setPasswordProvisional(rawPassword);
         }
 
         return respuesta;
     }
 
-    /**
-     * Ficha de la persona a la que pertenece la cuenta del personal.
-     *
-     * <p>Sin esto, el alta que HU-04 describe creaba cuentas sin ficha, y RF-10
-     * exige una para registrar al profesional: el único camino para dar de alta un
-     * odontólogo era que la persona se registrase antes por el portal público
-     * —que fuerza rol PACIENTE— y que el administrador le cambiase el rol después.
-     * Peor aún, una cuenta sin ficha jamás resuelve a su registro de odontólogo,
-     * así que {@code OdontologoOwnershipGuard} la rechazaba siempre y nunca podría
-     * declarar su horario ni sus bloqueos (Tabla 10, marcas «propio»).
-     *
-     * <p>Solo es obligatoria para ODONTOLOGO, que es el rol cuyo permiso depende
-     * del vínculo. Recepción y administración no necesitan historia clínica: se
-     * les crea la ficha si el administrador indica el documento, y no si lo omite.
-     *
-     * <p>Aplica la misma regla que {@code AuthService.registrarPaciente}: si ya
-     * existe una ficha con ese par (tipo, número) se vincula en lugar de
-     * duplicarla (RN-10), y si esa ficha ya tiene cuenta se rechaza (RN-11). La
-     * ficha nueva nace sin nombres porque el alta solo recoge un {@code nombre}
-     * para la cuenta; los del profesional los aporta {@code POST /odontologos},
-     * y los del paciente, el registro del portal, que completa los huecos.
-     */
     private pe.edu.dentalcite.ficha.domain.Ficha resolverFichaDelPersonal(UsuarioRequestDTO request) {
         boolean traeDocumento = request.getDocumento() != null && !request.getDocumento().isBlank();
 
@@ -130,6 +106,10 @@ public class UsuarioService {
             if (ROL_ODONTOLOGO.equals(request.getRol())) {
                 throw new IllegalArgumentException(
                         "Una cuenta de rol ODONTOLOGO necesita el documento de la persona para crear su ficha (RN-11).");
+            }
+            if (ROL_PACIENTE.equals(request.getRol())) {
+                throw new IllegalArgumentException(
+                        "Una cuenta de rol PACIENTE necesita el documento del paciente para encontrar su ficha.");
             }
             return null;
         }
@@ -150,7 +130,12 @@ public class UsuarioService {
             return ficha;
         }
 
-        // El correlativo sale de la secuencia, nunca de un conteo (RN-10).
+        if (ROL_PACIENTE.equals(request.getRol())) {
+            throw new IllegalStateException(
+                    "No hay ningún paciente registrado con ese documento: regístrelo primero como paciente"
+                            + " y vuelva a crear su cuenta.");
+        }
+
         String numeroHistoria = String.format("HC-%05d", fichaRepository.getNextHistoriaClinica());
         return fichaRepository.save(pe.edu.dentalcite.ficha.domain.Ficha.builder()
                 .tipoDocumento(tipoDocumento)
@@ -159,11 +144,6 @@ public class UsuarioService {
                 .build());
     }
 
-    /**
-     * Lectura de una cuenta cualquiera por el ADMINISTRADOR (Tabla 10: {@code R}
-     * sobre «cuentas de usuario y roles»). Distinta de
-     * {@link #obtenerPerfilPropio(UUID)}, que cada rol ejerce sobre la suya.
-     */
     @Transactional(readOnly = true)
     public UsuarioResponseDTO obtenerUsuario(UUID id) {
         return usuarioRepository.findById(id)
@@ -182,6 +162,7 @@ public class UsuarioService {
     public UsuarioResponseDTO actualizarUsuario(UUID id, UsuarioUpdateRequestDTO request) {
         Usuario usuario = usuarioRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Usuario no encontrado con ID: " + id));
+        verificarQueNoSeRetiraASiMismo(usuario, request.getRol(), request.getActivo());
 
         boolean tokensInvalidos = false;
 
@@ -209,15 +190,11 @@ public class UsuarioService {
         return mapToDTO(usuarioRepository.save(usuario));
     }
 
-    /**
-     * PUT: reemplaza el recurso completo. A diferencia de {@link #actualizarUsuario},
-     * ambos campos del DTO son obligatorios (ver {@link UsuarioReplaceRequestDTO}) y
-     * se asignan siempre, sin el chequeo de "si viene null, no tocar" propio de PATCH.
-     */
     @Transactional
     public UsuarioResponseDTO reemplazarUsuario(UUID id, UsuarioReplaceRequestDTO request) {
         Usuario usuario = usuarioRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Usuario no encontrado con ID: " + id));
+        verificarQueNoSeRetiraASiMismo(usuario, request.getRol(), request.getActivo());
 
         boolean tokensInvalidos = !request.getRol().equals(usuario.getRol())
                 || !request.getActivo().equals(usuario.getActivo());
@@ -227,12 +204,35 @@ public class UsuarioService {
         usuario.setActivo(request.getActivo());
 
         if (tokensInvalidos) {
-            // Invalida inmediatamente cualquier token emitido previamente
             usuario.revocarTokensVigentes();
             tokenRevocationCache.invalidarTrasCommit(usuario.getId());
         }
 
         return mapToDTO(usuarioRepository.save(usuario));
+    }
+
+    private void verificarQueNoSeRetiraASiMismo(Usuario usuario, String rolNuevo, Boolean activoNuevo) {
+        if (!usuario.getId().equals(idDeQuienPide())) {
+            return;
+        }
+        boolean cambiaElRol = rolNuevo != null && !rolNuevo.equals(usuario.getRol());
+        boolean seDesactiva = Boolean.FALSE.equals(activoNuevo) && Boolean.TRUE.equals(usuario.getActivo());
+        if (cambiaElRol || seDesactiva) {
+            throw new IllegalStateException(
+                    "No puede desactivar su propia cuenta ni cambiarle el rol: pídaselo a otro administrador.");
+        }
+    }
+
+    private static UUID idDeQuienPide() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null || auth.getName() == null) {
+            return null;
+        }
+        try {
+            return UUID.fromString(auth.getName());
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
     }
 
     @Transactional
@@ -246,10 +246,6 @@ public class UsuarioService {
         tokenRevocationCache.invalidarTrasCommit(usuario.getId());
         usuarioRepository.save(usuario);
 
-        // HU-04: «podrá entrar con ella». El caso típico es justamente el de quien
-        // perdió su contraseña y la falló tres veces, así que la cuenta suele llegar
-        // aquí bloqueada por RNF-05: sin levantar ese bloqueo, la clave nueva seguía
-        // recibiendo 423 hasta que expirase la ventana de cinco minutos.
         authService.desbloquearCuenta(usuario);
     }
 
@@ -270,20 +266,10 @@ public class UsuarioService {
         usuarioRepository.save(usuario);
     }
 
-    /**
-     * Contraseña provisional aleatoria cuando el administrador no indica una. Se
-     * toman 12 caracteres del UUID (antes 8) para no quedar por debajo del mínimo
-     * que exige PasswordProvisionalRequestDTO en el resto del flujo.
-     */
     private String generarPasswordAleatorio() {
         return UUID.randomUUID().toString().replace("-", "").substring(0, 12);
     }
 
-    /**
-     * Normaliza un correo para comparación/almacenamiento (trim + minúsculas), de
-     * forma consistente con AuthService, evitando que "User@x.com" y "user@x.com"
-     * se traten como cuentas distintas.
-     */
     private String normalizarCorreo(String correo) {
         return correo == null ? null : correo.trim().toLowerCase(java.util.Locale.ROOT);
     }
@@ -297,7 +283,7 @@ public class UsuarioService {
                 .activo(usuario.getActivo())
                 .requiereCambioPassword(usuario.getRequiereCambioPassword())
                 .tokensValidosDesde(usuario.getTokensValidosDesde())
-                // Leer el identificador no inicializa el proxy de la ficha.
+
                 .fichaId(usuario.getFicha() == null ? null : usuario.getFicha().getId())
                 .build();
     }

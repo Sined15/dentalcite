@@ -162,7 +162,7 @@ public class AuthServiceTest {
 
         when(redisTemplate.opsForValue()).thenReturn(valueOperations);
         when(valueOperations.get("login_attempts:admin@dentalcite.com")).thenReturn(null);
-        when(usuarioRepository.findByCorreo("admin@dentalcite.com")).thenReturn(Optional.of(usuario));
+        when(usuarioRepository.findParaLoginByCorreo("admin@dentalcite.com")).thenReturn(Optional.of(usuario));
         when(passwordEncoder.matches("Password123", "hash")).thenReturn(true);
         when(jwtService.generateToken(usuario)).thenReturn("mocked.jwt.token");
 
@@ -182,7 +182,7 @@ public class AuthServiceTest {
         when(redisTemplate.opsForValue()).thenReturn(valueOperations);
         when(valueOperations.get("login_attempts:hacker@dentalcite.com")).thenReturn(null);
         when(valueOperations.increment("login_attempts:hacker@dentalcite.com")).thenReturn(3L);
-        when(usuarioRepository.findByCorreo("hacker@dentalcite.com")).thenReturn(Optional.of(usuario));
+        when(usuarioRepository.findParaLoginByCorreo("hacker@dentalcite.com")).thenReturn(Optional.of(usuario));
         when(passwordEncoder.matches("incorrecta", "hash")).thenReturn(false);
 
         LockedException ex = assertThrows(LockedException.class, () -> authService.login(loginReq));
@@ -208,7 +208,7 @@ public class AuthServiceTest {
         when(redisTemplate.opsForValue()).thenReturn(valueOperations);
         when(valueOperations.get("login_attempts:bloqueado@dentalcite.com"))
                 .thenThrow(new RuntimeException("Redis no disponible"));
-        when(usuarioRepository.findByCorreo("bloqueado@dentalcite.com")).thenReturn(Optional.of(usuario));
+        when(usuarioRepository.findParaLoginByCorreo("bloqueado@dentalcite.com")).thenReturn(Optional.of(usuario));
 
         LockedException ex = assertThrows(LockedException.class, () -> authService.login(loginReq));
         assertEquals("Cuenta bloqueada temporalmente por múltiples intentos fallidos.", ex.getMessage());
@@ -230,7 +230,7 @@ public class AuthServiceTest {
         when(redisTemplate.opsForValue()).thenReturn(valueOperations);
         when(valueOperations.get("login_attempts:caducado@dentalcite.com")).thenReturn(null);
         when(valueOperations.increment("login_attempts:caducado@dentalcite.com")).thenReturn(1L);
-        when(usuarioRepository.findByCorreo("caducado@dentalcite.com")).thenReturn(Optional.of(usuario));
+        when(usuarioRepository.findParaLoginByCorreo("caducado@dentalcite.com")).thenReturn(Optional.of(usuario));
         when(passwordEncoder.matches("incorrecta", "hash")).thenReturn(false);
 
         assertThrows(org.springframework.security.authentication.BadCredentialsException.class,
@@ -252,7 +252,7 @@ public class AuthServiceTest {
         when(redisTemplate.opsForValue()).thenReturn(valueOperations);
         when(valueOperations.get("login_attempts:concurrente@dentalcite.com")).thenReturn(null);
         when(valueOperations.increment("login_attempts:concurrente@dentalcite.com")).thenReturn(1L);
-        when(usuarioRepository.findByCorreo("concurrente@dentalcite.com")).thenReturn(Optional.of(usuario));
+        when(usuarioRepository.findParaLoginByCorreo("concurrente@dentalcite.com")).thenReturn(Optional.of(usuario));
         when(passwordEncoder.matches("incorrecta", "hash")).thenReturn(false);
 
         assertThrows(org.springframework.security.authentication.BadCredentialsException.class,
@@ -295,7 +295,7 @@ public class AuthServiceTest {
         LoginRequest loginReq = new LoginRequest("noexiste@dentalcite.com", "Password123");
         when(redisTemplate.opsForValue()).thenReturn(valueOperations);
         when(valueOperations.get("login_attempts:noexiste@dentalcite.com")).thenReturn(null);
-        when(usuarioRepository.findByCorreo("noexiste@dentalcite.com")).thenReturn(Optional.empty());
+        when(usuarioRepository.findParaLoginByCorreo("noexiste@dentalcite.com")).thenReturn(Optional.empty());
 
         assertThrows(org.springframework.security.authentication.BadCredentialsException.class, () -> authService.login(loginReq));
     }
@@ -307,7 +307,7 @@ public class AuthServiceTest {
         
         when(redisTemplate.opsForValue()).thenReturn(valueOperations);
         when(valueOperations.get("login_attempts:inactivo@dentalcite.com")).thenReturn(null);
-        when(usuarioRepository.findByCorreo("inactivo@dentalcite.com")).thenReturn(Optional.of(usuario));
+        when(usuarioRepository.findParaLoginByCorreo("inactivo@dentalcite.com")).thenReturn(Optional.of(usuario));
 
         assertThrows(org.springframework.security.authentication.DisabledException.class, () -> authService.login(loginReq));
     }
@@ -322,7 +322,7 @@ public class AuthServiceTest {
         when(redisTemplate.opsForValue()).thenReturn(valueOperations);
         when(valueOperations.get("login_attempts:user@dentalcite.com")).thenReturn(null);
         when(valueOperations.increment("login_attempts:user@dentalcite.com")).thenReturn(2L);
-        when(usuarioRepository.findByCorreo("user@dentalcite.com")).thenReturn(Optional.of(usuario));
+        when(usuarioRepository.findParaLoginByCorreo("user@dentalcite.com")).thenReturn(Optional.of(usuario));
         when(passwordEncoder.matches("incorrecta", "hash")).thenReturn(false);
 
         assertThrows(org.springframework.security.authentication.BadCredentialsException.class, () -> authService.login(loginReq));
@@ -344,13 +344,13 @@ public class AuthServiceTest {
 
         when(redisTemplate.opsForValue()).thenReturn(valueOperations);
         when(valueOperations.get("login_attempts:user@dentalcite.com")).thenReturn(null);
-        when(usuarioRepository.findByCorreo("user@dentalcite.com")).thenReturn(Optional.of(usuario));
+        when(usuarioRepository.findParaLoginByCorreo("user@dentalcite.com")).thenReturn(Optional.of(usuario));
         when(passwordEncoder.matches("Password123", "hash")).thenReturn(true);
         when(jwtService.generateToken(usuario)).thenReturn("mocked.jwt.token");
 
         String token = authService.login(loginReq);
 
         assertEquals("mocked.jwt.token", token);
-        verify(usuarioRepository).findByCorreo("user@dentalcite.com");
+        verify(usuarioRepository).findParaLoginByCorreo("user@dentalcite.com");
     }
 }

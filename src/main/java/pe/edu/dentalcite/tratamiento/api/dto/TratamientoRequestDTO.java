@@ -23,16 +23,6 @@ public class TratamientoRequestDTO {
 
     private String descripcion;
 
-    /**
-     * RN-04: múltiplo de 15 minutos, entre 15 y 240.
-     *
-     * <p>La regla vivía solo en el servicio y en una restricción CHECK de la
-     * base, así que el contrato OpenAPI únicamente publicaba el mínimo: un
-     * cliente que leyera la especificación no sabía que 22 o 300 eran inválidos
-     * hasta recibir un 400. Los límites se declaran aquí para que se publiquen
-     * solos; el múltiplo lo comprueba {@link DuracionSegunRn04},
-     * porque Bean Validation no trae una anotación para ello.
-     */
     @NotNull(message = "La duración es obligatoria")
     @Min(value = 15, message = "La duración mínima es de 15 minutos")
     @Max(value = 240, message = "La duración máxima es de 240 minutos")
@@ -44,7 +34,6 @@ public class TratamientoRequestDTO {
     @NotNull(message = "La especialidad es obligatoria")
     private UUID especialidadId;
 
-    /** RF-09 (v4): opcional. Un tratamiento sin imagen se pinta con un marcador. */
     @Size(max = 500, message = "La ruta de la imagen no puede pasar de 500 caracteres")
     private String imagenUrl;
 }

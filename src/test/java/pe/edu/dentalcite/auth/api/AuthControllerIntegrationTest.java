@@ -212,7 +212,7 @@ public class AuthControllerIntegrationTest {
                 .orElseThrow().getId();
 
         Consentimiento consentimiento = consentimientoRepository.findAll().stream()
-                .filter(c -> c.getUsuario().getId().equals(usuarioId))
+                .filter(c -> c.getUsuario() != null && c.getUsuario().getId().equals(usuarioId))
                 .findFirst()
                 .orElseThrow(() -> new AssertionError("no se registro el consentimiento del alta"));
 

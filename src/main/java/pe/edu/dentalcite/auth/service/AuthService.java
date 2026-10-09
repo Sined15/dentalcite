@@ -36,19 +36,11 @@ public class AuthService {
     private final ConsentimientoRepository consentimientoRepository;
     private final PasswordEncoder passwordEncoder;
     private final StringRedisTemplate redisTemplate;
-
-    /** RNF-05: tres intentos fallidos consecutivos bloquean la cuenta cinco minutos. */
     private static final int MAX_INTENTOS_FALLIDOS = 3;
     private static final Duration BLOQUEO_LOGIN = Duration.ofMinutes(5);
     private final JwtService jwtService;
     private final TokenRevocationCache tokenRevocationCache;
 
-    /**
-     * Normaliza un correo para comparación/almacenamiento (trim + minúsculas), de
-     * forma que "User@Example.com" y "user@example.com" se traten como la misma
-     * cuenta en vez de crear dos registros distintos bajo la restricción UNIQUE
-     * (case-sensitive) de la columna.
-     */
     private String normalizarCorreo(String correo) {
         return correo == null ? null : correo.trim().toLowerCase(Locale.ROOT);
     }
@@ -62,10 +54,10 @@ public class AuthService {
 
         String tipoDocumento = request.getTipoDocumento() == null || request.getTipoDocumento().isBlank()
                 ? "DNI"
-                : request.getTipoDocumento();
+                : request.getTipoDocumento().trim();
+        String documento = request.getDocumento().trim();
 
-        Optional<Ficha> fichaOpt = fichaRepository.findByTipoDocumentoAndDocumento(tipoDocumento,
-                request.getDocumento());
+        Optional<Ficha> fichaOpt = fichaRepository.findByTipoDocumentoAndDocumento(tipoDocumento, documento);
         Ficha ficha;
 
         if (fichaOpt.isPresent()) {
@@ -75,14 +67,8 @@ public class AuthService {
             boolean hasUser = usuarioRepository.existsByFichaId(targetFichaId);
 
             if (hasUser) {
-                // RN-11: Una ficha que ya tiene cuenta no puede usarse para otro registro ->
-                // 409
                 throw new IllegalStateException("La ficha ya tiene una cuenta asociada.");
             }
-
-            // La ficha que la clínica ya tenía suele venir de un alta presencial con
-            // datos incompletos: el registro es la ocasión de completarla. Antes se
-            // descartaba en silencio todo lo que el visitante enviaba.
             if (request.getTelefono() != null && !request.getTelefono().isBlank()) {
                 ficha.setTelefono(request.getTelefono());
             }
@@ -94,15 +80,12 @@ public class AuthService {
             }
             ficha = fichaRepository.save(ficha);
         } else {
-            // Generar nuevo numero de historia correlativo usando secuencia de base de
-            // datos
-            // para evitar condiciones de carrera.
             long count = fichaRepository.getNextHistoriaClinica();
             String numeroHistoria = String.format("HC-%05d", count);
 
             ficha = Ficha.builder()
                     .tipoDocumento(tipoDocumento)
-                    .documento(request.getDocumento())
+                    .documento(documento)
                     .nombres(request.getNombres().trim())
                     .apellidos(request.getApellidos().trim())
                     .telefono(request.getTelefono())
@@ -122,9 +105,6 @@ public class AuthService {
 
         nuevoUsuario = usuarioRepository.save(nuevoUsuario);
 
-        // La ficha va junto al usuario, no en su lugar: desde HU-12 el
-        // consentimiento se consulta por la persona, y una fila que solo apunte a
-        // la cuenta desaparecería de esa consulta.
         Consentimiento consentimiento = Consentimiento.builder()
                 .usuario(nuevoUsuario)
                 .ficha(ficha)
@@ -134,41 +114,23 @@ public class AuthService {
         consentimientoRepository.save(consentimiento);
     }
 
-    /**
-     * {@code noRollbackFor} no es un detalle: sin él, RNF-05 quedaba solo en Redis.
-     * El conteo de intentos fallidos se escribe y a continuación el método lanza
-     * {@link BadCredentialsException} o {@link LockedException}; al ser
-     * excepciones no verificadas, el interceptor transaccional revertía la
-     * transacción y el {@code UPDATE} sobre {@code intentos_fallidos} y
-     * {@code bloqueado_hasta} se perdía. PostgreSQL nunca llegaba a ser la fuente
-     * de verdad que RNF-05 exige, y con Redis detenido no había bloqueo alguno.
-     * Todo lo que este método escribe —el contador al fallar, su reinicio al
-     * acertar— es precisamente lo que debe sobrevivir al rechazo del login.
-     */
     @Transactional(noRollbackFor = {
             BadCredentialsException.class, LockedException.class, DisabledException.class })
     public String login(LoginRequest request) {
         String correo = normalizarCorreo(request.getCorreo());
         String lockKey = "login_attempts:" + correo;
 
-        // 1. Camino rápido: bloqueo cacheado en Redis (RNF-05)
         if (bloqueadoSegunCache(lockKey)) {
             throw new LockedException("Cuenta bloqueada temporalmente por múltiples intentos fallidos.");
         }
 
-        Usuario usuario = usuarioRepository.findByCorreo(correo)
+        Usuario usuario = usuarioRepository.findParaLoginByCorreo(correo)
                 .orElseThrow(() -> new BadCredentialsException("Credenciales incorrectas"));
 
-        // 2. Fuente de verdad persistente: el bloqueo sigue vigente aunque Redis
-        // esté caído (a diferencia del chequeo anterior, que fallaba abierto).
         if (usuario.getBloqueadoHasta() != null) {
             if (usuario.getBloqueadoHasta().isAfter(OffsetDateTime.now())) {
                 throw new LockedException("Cuenta bloqueada temporalmente por múltiples intentos fallidos.");
             }
-            // El bloqueo caducó: RNF-05 concede tres intentos, no uno. Sin este
-            // reinicio el contador seguía en el máximo pasada la ventana, de modo
-            // que el primer fallo posterior volvía a bloquear la cuenta otros cinco
-            // minutos, y así indefinidamente.
             resetearIntentosFallidos(usuario, lockKey);
         }
 
@@ -180,11 +142,8 @@ public class AuthService {
             if (registrarIntentoFallidoYBloquear(usuario, lockKey)) {
                 throw new LockedException("Cuenta bloqueada temporalmente por múltiples intentos fallidos.");
             }
-            // Retorna 401 sin decir si falló correo o contraseña
             throw new BadCredentialsException("Credenciales incorrectas");
         }
-
-        // Éxito: resetear contador
         resetearIntentosFallidos(usuario, lockKey);
 
         return jwtService.generateToken(usuario);
@@ -200,16 +159,6 @@ public class AuthService {
         }
     }
 
-    /**
-     * Registra un intento fallido de login. PostgreSQL es la fuente de verdad
-     * (RNF-05): el conteo y el bloqueo siguen vigentes aunque Redis esté caído,
-     * a diferencia del chequeo original que fallaba abierto sin ningún respaldo.
-     * Redis se usa además como caché rápida best-effort, con INCR atómico para
-     * evitar la condición de carrera de un read-then-write entre solicitudes
-     * concurrentes.
-     *
-     * @return true si la cuenta quedó bloqueada como resultado de este intento.
-     */
     private boolean registrarIntentoFallidoYBloquear(Usuario usuario, String lockKey) {
         int intentos = usuario.getIntentosFallidos() + 1;
         usuario.setIntentosFallidos(intentos);
@@ -223,7 +172,6 @@ public class AuthService {
         try {
             Long attempts = redisTemplate.opsForValue().increment(lockKey);
             if (attempts != null && attempts == 1L) {
-                // Primer intento fallido de la ventana: fijar el TTL del bloqueo.
                 redisTemplate.expire(lockKey, BLOQUEO_LOGIN);
             }
             if (bloqueado) {
@@ -250,16 +198,6 @@ public class AuthService {
         }
     }
 
-    /**
-     * Levanta el bloqueo por intentos fallidos de una cuenta, en PostgreSQL y en la
-     * caché. Lo usa el administrador al entregar una contraseña provisional (HU-04:
-     * «podrá entrar con ella»).
-     *
-     * <p>Vive aquí, y no en {@code UsuarioService}, porque la clave
-     * {@code login_attempts:{correo}} es un detalle de este servicio: limpiar solo
-     * las columnas de PostgreSQL dejaría la cuenta rechazada con 423 hasta que
-     * expirase el TTL de la marca en Redis, que {@code login} consulta primero.
-     */
     @Transactional
     public void desbloquearCuenta(Usuario usuario) {
         resetearIntentosFallidos(usuario, "login_attempts:" + normalizarCorreo(usuario.getCorreo()));
@@ -269,12 +207,8 @@ public class AuthService {
     public void logout(UUID usuarioId) {
         Usuario usuario = usuarioRepository.findById(usuarioId)
                 .orElseThrow(() -> new ResourceNotFoundException("Usuario no encontrado"));
-        // RF-03: Invalidar instantáneamente cualquier token emitido actualizando la
-        // fecha
         usuario.revocarTokensVigentes();
         usuarioRepository.save(usuario);
-        // Sin esto la caché positiva de vigencia seguiría aceptando el token
-        // cerrado hasta cinco minutos (HU-03).
         tokenRevocationCache.invalidarTrasCommit(usuarioId);
     }
 }

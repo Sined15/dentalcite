@@ -878,6 +878,44 @@ class PlanServiceTest {
     }
 
     @Test
+    void obtener_ajenoEInexistente_respondenConElMismoMensaje() {
+        todoEnOrden();
+        Plan plan = planDeSeisConDosAtendidas();
+        plan.setOdontologo(Odontologo.builder().id(UUID.randomUUID()).cop("COP-2")
+                .nombres("Ana").apellidos("Quispe").activo(true).build());
+        when(planRepository.findConDetalleById(plan.getId())).thenReturn(Optional.of(plan));
+        UUID inventado = UUID.randomUUID();
+        when(planRepository.findConDetalleById(inventado)).thenReturn(Optional.empty());
+        doThrow(new ResponseStatusException(HttpStatus.FORBIDDEN, "No ha atendido a este paciente"))
+                .when(accessGuard).verificarLectura(fichaPaciente.getId());
+
+        ResponseStatusException ajeno = assertThrows(ResponseStatusException.class,
+                () -> servicio.obtener(plan.getId()));
+        ResponseStatusException inexistente = assertThrows(ResponseStatusException.class,
+                () -> servicio.obtener(inventado));
+
+        // El texto del guard habla de la ficha; si pasara tal cual, el mensaje
+        // diría cuál de los dos casos era.
+        assertEquals(inexistente.getReason(), ajeno.getReason());
+    }
+
+    @Test
+    void obtener_unRechazoDelGuardQueNoEsForbidden_seDejaPasarTalCual() {
+        todoEnOrden();
+        Plan plan = planDeSeisConDosAtendidas();
+        plan.setOdontologo(Odontologo.builder().id(UUID.randomUUID()).cop("COP-2")
+                .nombres("Ana").apellidos("Quispe").activo(true).build());
+        when(planRepository.findConDetalleById(plan.getId())).thenReturn(Optional.of(plan));
+        doThrow(new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Usuario no encontrado"))
+                .when(accessGuard).verificarLectura(fichaPaciente.getId());
+
+        ResponseStatusException e = assertThrows(ResponseStatusException.class,
+                () -> servicio.obtener(plan.getId()));
+
+        assertEquals(HttpStatus.UNAUTHORIZED, e.getStatusCode());
+    }
+
+    @Test
     void obtener_comoAdministrador_pasaPorElGuardQueLeDejaVerlo() {
         autenticar(UUID.randomUUID(), "SCOPE_ADMINISTRADOR");
         Plan plan = planDeSeisConDosAtendidas();

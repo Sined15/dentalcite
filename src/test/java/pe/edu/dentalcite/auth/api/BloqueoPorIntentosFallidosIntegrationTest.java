@@ -17,7 +17,14 @@ import pe.edu.dentalcite.TestcontainersConfiguration;
 import pe.edu.dentalcite.usuario.domain.Usuario;
 import pe.edu.dentalcite.usuario.repository.UsuarioRepository;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -158,5 +165,57 @@ class BloqueoPorIntentosFallidosIntegrationTest {
 
         assertEquals(1, intentosFallidosEnBd(usuario.getId()), "la ventana caducada debe reiniciar el conteo");
         assertTrue(sinBloqueoEnBd(usuario.getId()), "la marca vencida debe limpiarse, no arrastrarse");
+    }
+
+    @Test
+    void intentosFallidosSimultaneos_noEsquivanElBloqueo() throws Exception {
+        // Cada intento leía el contador, comprobaba la contraseña y escribía el
+        // contador más uno. Lanzados a la vez, todos leían el mismo valor y la cuenta
+        // se quedaba en un solo fallo: probando contraseñas en paralelo no llegaba a
+        // bloquearse nunca.
+        Usuario usuario = crearCuenta();
+        String correo = usuario.getCorreo();
+
+        List<Integer> estados = Collections.synchronizedList(new ArrayList<>());
+        enParalelo(8, () -> estados.add(estadoDelLogin(correo, "incorrecta")));
+
+        assertTrue(intentosFallidosEnBd(usuario.getId()) >= 3,
+                "los fallos simultáneos deben contarse todos; estados: " + estados);
+        assertTrue(bloqueoVigenteEnBd(usuario.getId()),
+                "la cuenta debe quedar bloqueada; estados: " + estados);
+
+        // Sin la marca de Redis, quien rechaza es la base.
+        redisTemplate.delete("login_attempts:" + correo);
+        login(correo, PASSWORD).andExpect(status().is(423));
+    }
+
+    private int estadoDelLogin(String correo, String password) {
+        try {
+            return login(correo, password).andReturn().getResponse().getStatus();
+        } catch (Exception e) {
+            return -1;
+        }
+    }
+
+    /** Lanza las peticiones de verdad a la vez y espera a que terminen. */
+    private void enParalelo(int veces, Runnable tarea) throws InterruptedException {
+        CountDownLatch salida = new CountDownLatch(1);
+        CountDownLatch fin = new CountDownLatch(veces);
+        ExecutorService pool = Executors.newFixedThreadPool(veces);
+        for (int i = 0; i < veces; i++) {
+            pool.submit(() -> {
+                try {
+                    salida.await();
+                    tarea.run();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                } finally {
+                    fin.countDown();
+                }
+            });
+        }
+        salida.countDown();
+        assertTrue(fin.await(60, TimeUnit.SECONDS), "los intentos no terminaron a tiempo");
+        pool.shutdown();
     }
 }

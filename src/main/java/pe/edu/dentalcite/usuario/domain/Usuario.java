@@ -72,19 +72,6 @@ public class Usuario {
     @JoinColumn(name = "ficha_id", unique = true)
     private Ficha ficha;
 
-    /**
-     * Invalida todos los tokens emitidos hasta ahora: logout, cambio de rol,
-     * desactivacion y cambio de contrasena (HU-03, HU-04).
-     *
-     * <p>El claim {@code iat} de un JWT solo distingue segundos, asi que la marca
-     * se lleva al inicio del segundo siguiente: todo token emitido hasta el final
-     * de este segundo queda invalidado. Con {@code now()} truncado hacia abajo, el
-     * token emitido en el mismo segundo del logout seguia siendo aceptado.
-     *
-     * <p>Si la marca ya apunta a ese instante --dos revocaciones dentro del mismo
-     * segundo-- avanza un segundo mas. Sin ese avance no superaria el {@code iat}
-     * del token emitido entre ambas, y la segunda revocacion no surtiria efecto.
-     */
     public void revocarTokensVigentes() {
         OffsetDateTime siguienteSegundo = OffsetDateTime.now()
                 .truncatedTo(ChronoUnit.SECONDS)
@@ -94,10 +81,6 @@ public class Usuario {
                 : tokensValidosDesde.plusSeconds(1);
     }
 
-    /**
-     * La marca se guarda con precision de segundo, la misma del claim {@code iat}
-     * contra el que se compara.
-     */
     @PrePersist
     @PreUpdate
     void normalizarVigenciaDeTokens() {

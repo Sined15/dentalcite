@@ -13,19 +13,6 @@ import java.time.Duration;
 import java.time.LocalDate;
 import java.util.UUID;
 
-/**
- * Caché de franjas (RNF-01): evita recalcular el rango completo en consultas
- * repetidas. Sigue el mismo contrato que {@code TokenRevocationCache}: Redis es
- * best-effort y PostgreSQL sigue siendo la autoridad, así que toda llamada va
- * envuelta en {@code try/catch} y su fallo solo cuesta un recálculo (RNF-12).
- *
- * <p>La clave lleva un número de versión que vive en Redis. Invalidar no es
- * enumerar y borrar claves —que con cinco odontólogos, catorce días y todos los
- * tratamientos serían miles—, sino un único {@code INCR}: las claves anteriores
- * dejan de consultarse en el acto y caducan solas por TTL. Eso es lo que permite
- * que una cancelación devuelva la franja a la oferta «de inmediato» (HU-11) sin
- * que la caché la siga escondiendo durante el resto de su vida.
- */
 @Slf4j
 @Component
 public class FranjasCache {
@@ -45,10 +32,6 @@ public class FranjasCache {
         this.ttl = Duration.ofSeconds(ttlSegundos);
     }
 
-    /**
-     * @return la clave de esta consulta, o {@code null} si Redis no responde; en
-     *         ese caso el servicio calcula sin pasar por la caché.
-     */
     public String clave(UUID tratamientoId, UUID odontologoId, LocalDate desde, LocalDate hasta) {
         String version = version();
         if (version == null) {
@@ -68,7 +51,6 @@ public class FranjasCache {
         }
     }
 
-    /** @return la respuesta cacheada, o {@code null} si no está o Redis no responde. */
     public DisponibilidadResponseDTO leer(String clave) {
         if (clave == null) {
             return null;
@@ -93,13 +75,6 @@ public class FranjasCache {
         }
     }
 
-    /**
-     * Deja obsoleta toda la caché. Debe llamarse en <strong>todo</strong> punto
-     * que cambie la agenda: hoy son los horarios y los bloqueos (HU-07), la
-     * reserva (HU-09) y la cancelación (HU-11). Sin esto, una franja ocupada
-     * seguiría ofreciéndose —y una liberada seguiría sin ofrecerse— hasta que
-     * caducara el TTL.
-     */
     public void invalidarTodo() {
         try {
             redisTemplate.opsForValue().increment(CLAVE_VERSION);
@@ -108,12 +83,6 @@ public class FranjasCache {
         }
     }
 
-    /**
-     * Variante para usar dentro de un método {@code @Transactional}: espera al
-     * commit. Invalidar antes dejaría una ventana en la que otra petición
-     * recalcularía con la agenda todavía sin cambiar y volvería a cachear ese
-     * resultado bajo la versión nueva, deshaciendo la invalidación.
-     */
     public void invalidarTrasCommit() {
         if (!TransactionSynchronizationManager.isSynchronizationActive()) {
             invalidarTodo();

@@ -107,7 +107,7 @@ class CancelacionServiceTest {
 
     private Cita prepararConfirmada() {
         Cita cita = citaInminente(Cita.ESTADO_CONFIRMADA);
-        when(citaRepository.findById(cita.getId())).thenReturn(Optional.of(cita));
+        when(citaRepository.findParaTransicion(cita.getId())).thenReturn(Optional.of(cita));
         lenient().when(usuarioRepository.findById(recepcionistaId))
                 .thenReturn(Optional.of(recepcionista()));
         return cita;
@@ -185,7 +185,7 @@ class CancelacionServiceTest {
     @Test
     void cancelar_citaInexistente_lanza404() {
         UUID citaId = UUID.randomUUID();
-        when(citaRepository.findById(citaId)).thenReturn(Optional.empty());
+        when(citaRepository.findParaTransicion(citaId)).thenReturn(Optional.empty());
 
         assertThrows(ResourceNotFoundException.class, () -> servicio.cancelar(citaId, "Motivo"));
         verify(franjasCache, never()).invalidarTrasCommit();
@@ -196,7 +196,7 @@ class CancelacionServiceTest {
         // RN-09 no admite retornos: cancelar dos veces no es idempotente, es un
         // error de quien opera, y silenciarlo ocultaria que otro ya lo hizo.
         Cita cita = citaInminente(Cita.ESTADO_CANCELADA);
-        when(citaRepository.findById(cita.getId())).thenReturn(Optional.of(cita));
+        when(citaRepository.findParaTransicion(cita.getId())).thenReturn(Optional.of(cita));
 
         IllegalStateException error = assertThrows(IllegalStateException.class,
                 () -> servicio.cancelar(cita.getId(), "Otro motivo"));
@@ -209,7 +209,7 @@ class CancelacionServiceTest {
     @Test
     void cancelar_citaYaAtendida_lanzaIllegalState() {
         Cita cita = citaInminente("ATENDIDA");
-        when(citaRepository.findById(cita.getId())).thenReturn(Optional.of(cita));
+        when(citaRepository.findParaTransicion(cita.getId())).thenReturn(Optional.of(cita));
 
         assertThrows(IllegalStateException.class, () -> servicio.cancelar(cita.getId(), "Motivo"));
     }
@@ -220,7 +220,7 @@ class CancelacionServiceTest {
         // peor que registrarla sin el; la autorizacion ya la resolvio el filtro.
         SecurityContextHolder.clearContext();
         Cita cita = citaInminente(Cita.ESTADO_CONFIRMADA);
-        when(citaRepository.findById(cita.getId())).thenReturn(Optional.of(cita));
+        when(citaRepository.findParaTransicion(cita.getId())).thenReturn(Optional.of(cita));
 
         servicio.cancelar(cita.getId(), "Cancelacion de sistema");
 
@@ -249,7 +249,7 @@ class CancelacionServiceTest {
                 new UsernamePasswordAuthenticationToken("no-es-un-uuid", null,
                         List.of(new SimpleGrantedAuthority("SCOPE_RECEPCIONISTA"))));
         Cita cita = citaInminente(Cita.ESTADO_CONFIRMADA);
-        when(citaRepository.findById(cita.getId())).thenReturn(Optional.of(cita));
+        when(citaRepository.findParaTransicion(cita.getId())).thenReturn(Optional.of(cita));
 
         servicio.cancelar(cita.getId(), "Motivo");
 
@@ -266,12 +266,46 @@ class CancelacionServiceTest {
                 .toOffsetDateTime();
         cita.setInicio(lejos);
         cita.setFin(lejos.plusMinutes(30));
-        when(citaRepository.findById(cita.getId())).thenReturn(Optional.of(cita));
+        when(citaRepository.findParaTransicion(cita.getId())).thenReturn(Optional.of(cita));
         lenient().when(usuarioRepository.findById(recepcionistaId))
                 .thenReturn(Optional.of(recepcionista()));
 
         servicio.cancelar(cita.getId(), "El paciente reprograma");
 
         assertEquals("CANCELADA", cita.getEstado());
+    }
+
+    @Test
+    void cancelar_unaCitaQueYaEmpezo_lanzaIllegalStateYNoLaToca() {
+        // Una cita en curso ocurrió o no ocurrió, y eso lo dice su resultado: no se
+        // cancela, se cierra.
+        Cita cita = citaInminente(Cita.ESTADO_CONFIRMADA);
+        OffsetDateTime haceDiezMinutos = OffsetDateTime.now(LIMA).minusMinutes(10);
+        cita.setInicio(haceDiezMinutos);
+        cita.setFin(haceDiezMinutos.plusMinutes(30));
+        when(citaRepository.findParaTransicion(cita.getId())).thenReturn(Optional.of(cita));
+
+        IllegalStateException error = assertThrows(IllegalStateException.class,
+                () -> servicio.cancelar(cita.getId(), "Motivo"));
+
+        assertTrue(error.getMessage().contains("ya empezó"), error.getMessage());
+        assertEquals(Cita.ESTADO_CONFIRMADA, cita.getEstado());
+        verify(historialRepository, never()).save(any());
+    }
+
+    @Test
+    void cancelar_unaCitaVencidaPendienteDeCierre_lanzaIllegalState() {
+        // La que espera en la cola de cierre tampoco: cancelarla la sacaría de ahí
+        // sin decir si el paciente vino.
+        Cita cita = citaInminente(Cita.ESTADO_CONFIRMADA);
+        OffsetDateTime ayer = OffsetDateTime.now(LIMA).minusDays(1);
+        cita.setInicio(ayer);
+        cita.setFin(ayer.plusMinutes(30));
+        when(citaRepository.findParaTransicion(cita.getId())).thenReturn(Optional.of(cita));
+
+        assertThrows(IllegalStateException.class, () -> servicio.cancelar(cita.getId(), "Motivo"));
+
+        assertEquals(Cita.ESTADO_CONFIRMADA, cita.getEstado());
+        verify(franjasCache, never()).invalidarTrasCommit();
     }
 }

@@ -4,10 +4,6 @@ target/
 !**/src/main/**/target/
 !**/src/test/**/target/
 
-/.agents
-/.claude
-CLAUDE.md
-
 ### STS ###
 .apt_generated
 .classpath
@@ -30,6 +26,10 @@ CLAUDE.md
 /nbdist/
 /.nb-gradle/
 build/
+/.agents
+/.claude
+/docs/
+CLAUDE.md
 !**/src/main/**/build/
 !**/src/test/**/build/
 

@@ -326,14 +326,27 @@ public class PlanService {
             if (tieneAutoridad(auth, ADMINISTRADOR)) {
                 throw new ResourceNotFoundException("Plan no encontrado");
             }
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
-                    "No puede consultar este plan de tratamiento.");
+            throw planVedado();
         }
 
         if (!loFirmoQuienPregunta(auth, plan)) {
-            accessGuard.verificarLectura(plan.getFicha().getId());
+            try {
+                accessGuard.verificarLectura(plan.getFicha().getId());
+            } catch (ResponseStatusException rechazo) {
+                // El guard explica el rechazo con palabras de la ficha, y el plan
+                // inexistente responde con las del plan: dos textos para el mismo
+                // 403 dirían cuál de los dos casos era. Se responde siempre igual.
+                if (rechazo.getStatusCode().value() == HttpStatus.FORBIDDEN.value()) {
+                    throw planVedado();
+                }
+                throw rechazo;
+            }
         }
         return mapear(plan);
+    }
+
+    private static ResponseStatusException planVedado() {
+        return new ResponseStatusException(HttpStatus.FORBIDDEN, "No puede consultar este plan de tratamiento.");
     }
 
     /**
@@ -433,8 +446,10 @@ public class PlanService {
         }
         Odontologo suyo = registroDelOdontologoAutenticado(auth);
         if (!suyo.getId().equals(duenoDelPlan.getId())) {
+            // El mensaje no dice quién firmó el plan: la autoría es un dato del
+            // recurso, y la respuesta de rechazo no debe llevar ninguno.
             throw new ResponseStatusException(HttpStatus.FORBIDDEN,
-                    "Este plan lo creó otro odontólogo (RNF-04).");
+                    "No puede modificar este plan de tratamiento.");
         }
     }
 

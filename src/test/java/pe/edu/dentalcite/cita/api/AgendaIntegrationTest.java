@@ -436,6 +436,24 @@ class AgendaIntegrationTest {
     }
 
     @Test
+    void cancelar_unaCitaQueYaTermino_devuelve409YSigueEnLaColaDeCierre() throws Exception {
+        // Se cancela lo que todavía no ha empezado. La cita que terminó sin
+        // resultado espera en la cola de cierre, y ahí se queda: lo que le toca es
+        // registrar si el paciente vino. Se lleva al pasado moviéndola en la base,
+        // igual que la prueba de arriba la acerca.
+        UUID citaId = reservar(odontologoId, LocalTime.of(9, 0));
+        Cita cita = citaRepository.findById(citaId).orElseThrow();
+        java.time.OffsetDateTime inicio = java.time.OffsetDateTime.now().minusHours(3).minusMinutes(7);
+        cita.setInicio(inicio);
+        cita.setFin(inicio.plusMinutes(30));
+        citaRepository.save(cita);
+
+        cancelar(citaId, "Se cancela tarde").andExpect(status().isConflict());
+
+        assertEquals("CONFIRMADA", citaRepository.findById(citaId).orElseThrow().getEstado());
+    }
+
+    @Test
     void cancelar_sinMotivo_devuelve400() throws Exception {
         UUID citaId = reservar(odontologoId, LocalTime.of(9, 0));
 

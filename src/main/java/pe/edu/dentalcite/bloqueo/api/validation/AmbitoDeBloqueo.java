@@ -11,13 +11,6 @@ import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 
-/**
- * Un bloqueo necesita un ámbito: el odontólogo, el consultorio, o ambos.
- *
- * <p>La violación se reporta sobre los dos campos, no sobre uno elegido al azar:
- * cualquiera de ellos resuelve el error, así que un formulario debe poder marcar
- * los dos controles implicados.
- */
 @Target(ElementType.TYPE)
 @Retention(RetentionPolicy.RUNTIME)
 @Constraint(validatedBy = AmbitoDeBloqueo.Validador.class)

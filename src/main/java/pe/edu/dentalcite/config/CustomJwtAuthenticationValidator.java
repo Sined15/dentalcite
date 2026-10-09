@@ -41,16 +41,11 @@ public class CustomJwtAuthenticationValidator implements OAuth2TokenValidator<Jw
                     new OAuth2Error("invalid_token", "El subject del token no es un identificador válido", null));
         }
 
-        // 1. Caché de la marca de vigencia. Se cachea el valor, no un "OK", para que
-        //    la comparación siga haciéndose contra la marca real del usuario: así un
-        //    logout invalida la clave y el token deja de aceptarse en la petición
-        //    siguiente, sin esperar al TTL (HU-03, HU-04).
         Instant cacheada = revocationCache.leer(userId);
         if (cacheada != null) {
             return decidir(issuedAt, cacheada);
         }
 
-        // 2. PostgreSQL es la fuente de autoridad (RNF-12).
         Optional<Instant> tokensValidFromOpt = usuarioRepository.findTokensValidosDesdeById(userId)
                 .map(OffsetDateTime::toInstant);
 

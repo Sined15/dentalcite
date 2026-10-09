@@ -8,6 +8,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
@@ -15,13 +16,16 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.context.WebApplicationContext;
 import pe.edu.dentalcite.TestcontainersConfiguration;
 import pe.edu.dentalcite.usuario.api.dto.UsuarioRequestDTO;
+import pe.edu.dentalcite.usuario.repository.UsuarioRepository;
 
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
@@ -41,8 +45,13 @@ class UsuarioControllerIntegrationTest {
     @Autowired
     private WebApplicationContext context;
 
-    private ObjectMapper objectMapper = new ObjectMapper();
+    @Autowired
+    private UsuarioRepository usuarioRepository;
 
+    @Autowired
+    private pe.edu.dentalcite.ficha.repository.FichaRepository fichaRepository;
+
+    private ObjectMapper objectMapper = new ObjectMapper();
 
     @BeforeEach
     void setUp() {
@@ -161,6 +170,50 @@ class UsuarioControllerIntegrationTest {
                 .andExpect(status().isCreated());
     }
 
+    @Test
+    @WithMockUser(authorities = "SCOPE_ADMINISTRADOR")
+    void crearUsuario_pacienteSinFichaRegistrada_retorna409YPideRegistrarloPrimero() throws Exception {
+        UsuarioRequestDTO request = new UsuarioRequestDTO();
+        request.setNombre("Paciente Sin Ficha");
+        request.setCorreo("paciente-sin-ficha@dentalcite.com");
+        request.setRol("PACIENTE");
+        request.setDocumento("49999001");
+
+        mockMvc.perform(post("/api/v1/usuarios")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString(
+                        "regístrelo primero como paciente")));
+
+        assertTrue(fichaRepository.findByTipoDocumentoAndDocumento("DNI", "49999001").isEmpty(),
+                "el rechazo no puede dejar una ficha huérfana");
+    }
+
+    @Test
+    @WithMockUser(authorities = "SCOPE_ADMINISTRADOR")
+    void crearUsuario_pacienteConFichaSinCuenta_retorna201YLaVincula() throws Exception {
+        // La forma de la persona registrada como paciente que aún no tiene cuenta.
+        pe.edu.dentalcite.ficha.domain.Ficha ficha = fichaRepository.save(
+                pe.edu.dentalcite.ficha.domain.Ficha.builder()
+                        .tipoDocumento("DNI")
+                        .documento("49999002")
+                        .numeroHistoria(String.format("HC-%05d", fichaRepository.getNextHistoriaClinica()))
+                        .build());
+
+        UsuarioRequestDTO request = new UsuarioRequestDTO();
+        request.setNombre("Paciente Con Ficha");
+        request.setCorreo("paciente-con-ficha@dentalcite.com");
+        request.setRol("PACIENTE");
+        request.setDocumento("49999002");
+
+        mockMvc.perform(post("/api/v1/usuarios")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.fichaId").value(ficha.getId().toString()));
+    }
+
     // Nota: El test del filtro de Password requiere un token JWT real generado,
     // por lo que WithMockUser no pasará por el PasswordFilter (que lee claims del
     // JWT).
@@ -257,5 +310,19 @@ class UsuarioControllerIntegrationTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"password\": \"provisional123\"}"))
                 .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void desactivarLaPropiaCuenta_retorna409YLaCuentaSigueActiva() throws Exception {
+        // Si fuera el único administrador, nadie podría reactivarla después.
+        UUID adminId = usuarioRepository.findByCorreo("admin@dentalcite.com").orElseThrow().getId();
+
+        mockMvc.perform(patch("/api/v1/usuarios/" + adminId)
+                        .with(user(adminId.toString()).authorities(new SimpleGrantedAuthority("SCOPE_ADMINISTRADOR")))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"activo\": false}"))
+                .andExpect(status().isConflict());
+
+        assertTrue(usuarioRepository.findById(adminId).orElseThrow().getActivo());
     }
 }

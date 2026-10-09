@@ -24,42 +24,12 @@ import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.util.UUID;
 
-/**
- * Cancelación de una cita, desde recepción (HU-11 · RF-20, RF-21) y por el
- * propio paciente (HU-15 · RF-19 · RN-06).
- *
- * <p><strong>Recepción no tiene ventana.</strong> Su criterio es explícito: «dada
- * cualquier cita activa, <em>incluso dentro de las veinticuatro horas previas a
- * su inicio</em>». La ventana de RN-06 limita solo al paciente cancelando lo
- * suyo; aplicarla a recepción rompería la razón de ser de esa operación, porque
- * la cancelación de última hora es precisamente la que el mostrador atiende.
- *
- * <p><strong>Al paciente se le responde 403 también cuando la cita no
- * existe.</strong> El criterio pide 403 «sin que la respuesta revele que la cita
- * existe», y un 404 para el identificador inventado frente a un 403 para el
- * ajeno distinguiría precisamente eso: probando identificadores se sabría cuáles
- * corresponden a citas reales. Para recepción, que puede verlas todas, el 404
- * sigue siendo lo correcto.
- *
- * <p>RN-12: nada se borra. La cita conserva su fila íntegra y su baja es el
- * estado CANCELADA, más una entrada en la bitácora con fecha, responsable y
- * motivo (RF-21).
- *
- * <p>Es {@code @Transactional} de escritura, al contrario que {@link CitaService}:
- * aquí no hay nada que reintentar y las tres escrituras —estado, motivo y
- * bitácora— tienen que caer juntas o no caer.
- */
 @Slf4j
 @Service
 public class CancelacionService {
 
     private static final String ROL_PACIENTE = "SCOPE_PACIENTE";
 
-    /**
-     * El mismo mensaje para la cita de otro y para la que no existe. Que sean
-     * indistinguibles es el requisito, no una simplificación: si difirieran,
-     * probar identificadores diría cuáles corresponden a citas reales.
-     */
     private static final String AJENA = "No puede cancelar esta cita (RNF-04).";
 
     private final CitaRepository citaRepository;
@@ -83,28 +53,13 @@ public class CancelacionService {
         this.zona = ZoneId.of(zonaHoraria);
     }
 
-    /**
-     * El orden de las comprobaciones es contrato:
-     *
-     * <ol>
-     *   <li>propiedad, que decide entre 403 y seguir;</li>
-     *   <li>estado, que da el 409 de RN-09;</li>
-     *   <li>ventana, que da el 422 de RN-06.</li>
-     * </ol>
-     *
-     * Invertir las dos últimas haría que cancelar dos veces una cita fuera de
-     * ventana saliera con el 422 de «contacte con recepción» en vez de con el 409
-     * que dice lo que de verdad pasa, que es que ya está cancelada.
-     */
     @Transactional
     public CitaResponseDTO cancelar(UUID citaId, String motivo) {
         Usuario responsable = responsable();
         boolean esPaciente = tieneAutoridad(ROL_PACIENTE);
 
-        Cita cita = citaRepository.findById(citaId)
+        Cita cita = citaRepository.findParaTransicion(citaId)
                 .orElseThrow(() -> esPaciente
-                        // Un 404 aquí frente al 403 de la cita ajena revelaría
-                        // cuáles identificadores existen.
                         ? new ResponseStatusException(HttpStatus.FORBIDDEN, AJENA)
                         : new ResourceNotFoundException("Cita no encontrada"));
 
@@ -112,16 +67,18 @@ public class CancelacionService {
             verificarQueEsSuya(cita, responsable);
         }
 
-        // RN-09 es una máquina sin retorno: lo que ya salió de CONFIRMADA no
-        // vuelve a entrar. Cancelar dos veces no es idempotente, es un error de
-        // quien opera, y silenciarlo ocultaría que otro ya lo hizo.
         if (!Cita.ESTADO_CONFIRMADA.equals(cita.getEstado())) {
             throw new IllegalStateException("La cita " + cita.getCodigo() + " ya esta en estado "
                     + cita.getEstado() + " y no puede cancelarse (RN-09).");
         }
 
-        // RN-06, solo para el paciente: recepción cancela sin ventana.
-        if (esPaciente && !ventana.puedeCancelarElPaciente(cita, OffsetDateTime.now(zona))) {
+        OffsetDateTime ahora = OffsetDateTime.now(zona);
+        if (!esPaciente && !cita.getInicio().isAfter(ahora)) {
+            throw new IllegalStateException("La cita " + cita.getCodigo()
+                    + " ya empezó: registre su resultado en lugar de cancelarla.");
+        }
+
+        if (esPaciente && !ventana.puedeCancelarElPaciente(cita, ahora)) {
             throw new ReglaIncumplidaException(ventana.motivoDelRechazo());
         }
 
@@ -138,20 +95,12 @@ public class CancelacionService {
                 .usuario(responsable)
                 .build());
 
-        // «La franja volverá a ofrecerse de inmediato» (RN-06). La base ya la
-        // liberó —las restricciones de exclusión de V13 son parciales sobre
-        // CONFIRMADA—, pero la caché seguiría sin ofrecerla hasta que caducase su
-        // TTL, y «de inmediato» no admite un minuto de espera.
         franjasCache.invalidarTrasCommit();
 
         log.info("Cita {} cancelada", cita.getCodigo());
         return mapear(cita);
     }
 
-    /**
-     * HU-15: la cita tiene que ser suya. Se compara por ficha, que es lo que une
-     * una cuenta con su historia clínica (RN-11).
-     */
     private void verificarQueEsSuya(Cita cita, Usuario solicitante) {
         if (solicitante == null || solicitante.getFicha() == null
                 || !solicitante.getFicha().getId().equals(cita.getFicha().getId())) {
@@ -165,12 +114,6 @@ public class CancelacionService {
                 && auth.getAuthorities().stream().anyMatch(a -> autoridad.equals(a.getAuthority()));
     }
 
-    /**
-     * Quién cancela (RF-21). Devuelve {@code null} en vez de fallar si el token no
-     * resuelve a un usuario: perder la bitácora entera por no poder nombrar al
-     * responsable sería peor que registrarla sin él, y la autorización ya la
-     * resolvió el filtro de seguridad antes de llegar aquí.
-     */
     private Usuario responsable() {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
         if (auth == null || !auth.isAuthenticated()) {

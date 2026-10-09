@@ -9,13 +9,6 @@ import java.util.UUID;
 
 public interface CitaHistorialRepository extends JpaRepository<CitaHistorial, UUID> {
 
-    /**
-     * La bitácora de una cita, en el orden en que ocurrió (RF-21).
-     *
-     * <p>El {@code @EntityGraph} trae el usuario responsable en la misma consulta:
-     * sin él, mostrar «quién» en una lista de transiciones emitiría una consulta
-     * por fila.
-     */
     @EntityGraph(attributePaths = "usuario")
     List<CitaHistorial> findByCitaIdOrderByOcurridoEnAsc(UUID citaId);
 }

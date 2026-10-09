@@ -39,11 +39,6 @@ public class BloqueoService {
     private final ConsultorioRepository consultorioRepository;
     private final UsuarioRepository usuarioRepository;
     private final CitaRepository citaRepository;
-    /**
-     * Aplicar o levantar un bloqueo cambia lo que el motor de disponibilidad
-     * (HU-08) debe ofrecer, y levantarlo debe devolver la franja a la oferta sin
-     * esperar a que caduque la cache.
-     */
     private final FranjasCache franjasCache;
 
     private static final Set<String> ROLES_ADMIN_O_RECEPCION = Set.of("SCOPE_ADMINISTRADOR", "SCOPE_RECEPCIONISTA");
@@ -58,19 +53,6 @@ public class BloqueoService {
                 .anyMatch(a -> ROLES_ADMIN_O_RECEPCION.contains(a.getAuthority()));
     }
 
-    /**
-     * Un bloqueo de consultorio deja fuera de servicio un recurso de toda la
-     * clínica, así que la marca (p) que la Tabla 10 concede al odontólogo —«los
-     * datos propios del usuario»— no lo alcanza: solo recepción y administración
-     * pueden tocarlo.
-     *
-     * <p>La comprobación es independiente de la de propiedad y no puede fundirse
-     * con ella. {@link OdontologoOwnershipGuard} solo negaba el consultorio cuando
-     * el bloqueo <em>no</em> llevaba odontólogo; bastaba con enviar además el
-     * identificador propio para que la verificación saliera por la rama de
-     * propiedad y nadie mirase el consultorio, de modo que cualquier odontólogo
-     * podía dejar un consultorio inoperativo para la clínica entera.
-     */
     private void verificarPuedeBloquearConsultorio(Consultorio consultorio) {
         if (consultorio == null) {
             return;
@@ -80,11 +62,6 @@ public class BloqueoService {
         }
     }
 
-    /**
-     * RNF-04: un odontólogo solo ve los bloqueos que le incumben —los suyos y los
-     * de consultorio, que afectan a toda la clínica—, no la agenda de sus colegas.
-     * Recepción y administración sí ven el conjunto completo (Tabla 10).
-     */
     @Transactional(readOnly = true)
     public List<BloqueoResponseDTO> listarBloqueos() {
         List<Bloqueo> todos = bloqueoRepository.findAll();
@@ -115,10 +92,6 @@ public class BloqueoService {
         }
     }
 
-    /**
-     * RN-03 / HU-07: un bloqueo que alcanza citas activas no se aplica; se listan
-     * para que quien lo registra sepa qué debe cancelarse antes, con motivo.
-     */
     private void verificarSinCitasActivas(Bloqueo bloqueo) {
         List<Cita> afectadas = new ArrayList<>();
         OffsetDateTime inicio = bloqueo.getFechaInicio();
@@ -161,13 +134,6 @@ public class BloqueoService {
         return ((nombres == null ? "" : nombres) + " " + (apellidos == null ? "" : apellidos)).trim();
     }
 
-    /**
-     * El mapeo corre dentro de la transacción del servicio, así que resolver el
-     * nombre del odontólogo y del consultorio inicializa sus proxies aquí y no
-     * durante la serialización, cuando la sesión ya está cerrada
-     * ({@code open-in-view: false}). {@code listarBloqueos} evita el N+1 con el
-     * grafo declarado en {@code BloqueoRepository.findAll()}.
-     */
     private static BloqueoResponseDTO mapBloqueo(Bloqueo entity) {
         Odontologo odontologo = entity.getOdontologo();
         Consultorio consultorio = entity.getConsultorio();
@@ -236,9 +202,6 @@ public class BloqueoService {
 
         Bloqueo bloqueo = bloqueoRepository.findById(bloqueoId)
                 .orElseThrow(() -> new ResourceNotFoundException("Bloqueo no encontrado"));
-        // Se comprueban los dos estados: hay que poder tocar el bloqueo tal como
-        // está y también tal como quedará. Sin lo primero, un odontólogo podría
-        // desactivar el bloqueo de un consultorio reescribiéndolo como suyo.
         verificarPropiedadOdontologoONivel(bloqueo.getOdontologo());
         verificarPuedeBloquearConsultorio(bloqueo.getConsultorio());
 

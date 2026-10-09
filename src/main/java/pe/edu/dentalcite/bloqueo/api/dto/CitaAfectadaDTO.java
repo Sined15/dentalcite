@@ -8,10 +8,6 @@ import lombok.NoArgsConstructor;
 import java.time.OffsetDateTime;
 import java.util.UUID;
 
-/**
- * Cita activa que un bloqueo alcanzaría. HU-07: «el sistema me listará esas citas
- * y no aplicará el bloqueo hasta que se cancelen con motivo» (RN-03).
- */
 @Data
 @Builder
 @NoArgsConstructor

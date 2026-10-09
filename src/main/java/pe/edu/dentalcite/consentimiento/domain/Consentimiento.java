@@ -33,21 +33,10 @@ public class Consentimiento {
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
-    /**
-     * La cuenta que firmó el consentimiento, cuando la hay. Es nulo en el alta
-     * presencial de HU-12: ese paciente no tiene cuenta, y exigirle una para
-     * poder registrar su consentimiento invertiría RNF-06 —lo convertiría en un
-     * requisito de las altas con credenciales en vez de en uno de todas—.
-     */
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "usuario_id")
     private Usuario usuario;
 
-    /**
-     * La ficha del titular. La rellenan las dos vías de alta —el portal junto
-     * con el usuario, el mostrador en solitario—, de modo que preguntar por el
-     * consentimiento de una persona no depende de por dónde entró.
-     */
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "ficha_id")
     private Ficha ficha;

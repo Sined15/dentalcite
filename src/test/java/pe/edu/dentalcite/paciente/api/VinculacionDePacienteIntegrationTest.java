@@ -106,4 +106,37 @@ class VinculacionDePacienteIntegrationTest {
         // 5. El registro completó el hueco que el alta presencial dejó.
         assertEquals("987654321", ficha.getTelefono());
     }
+
+    @Test
+    @WithMockUser(authorities = "SCOPE_RECEPCIONISTA")
+    void elRegistroConEspaciosAlrededorDelDocumentoTambienVinculaLaFicha() throws Exception {
+        // Un espacio que se cuela al escribir —o que añade el autocompletado del
+        // móvil— hacía que el documento no coincidiera y naciera una segunda ficha.
+        String documento = String.valueOf(ThreadLocalRandom.current().nextLong(40_000_000L, 79_999_999L));
+
+        String alta = mockMvc.perform(post("/api/v1/pacientes")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"nombres":"Hugo","apellidos":"Salcedo","tipoDocumento":"DNI",
+                                 "documento":"%s","consentimientoAceptado":true,
+                                 "versionConsentimiento":"1.0"}
+                                """.formatted(documento)))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        UUID fichaId = UUID.fromString(objectMapper.readTree(alta).path("id").asText());
+
+        mockMvc.perform(post("/api/v1/auth/registro")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"nombres":"Hugo","apellidos":"Salcedo","tipoDocumento":"DNI",
+                                 "documento":"  %s ","correo":"hugo-%s@demo.com",
+                                 "password":"Password123","consentimientoAceptado":true,
+                                 "versionConsentimiento":"1.0"}
+                                """.formatted(documento, documento)))
+                .andExpect(status().isCreated());
+
+        assertTrue(usuarioRepository.existsByFichaId(fichaId), "la cuenta debe colgar de la ficha del mostrador");
+        assertTrue(fichaRepository.findByTipoDocumentoAndDocumento("DNI", "  " + documento + " ").isEmpty(),
+                "no debe nacer una segunda ficha con el documento sin recortar");
+    }
 }

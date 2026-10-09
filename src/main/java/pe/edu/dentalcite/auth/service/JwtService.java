@@ -20,19 +20,12 @@ public class JwtService {
 
     public String generateToken(Usuario usuario) {
         Instant now = Instant.now();
-        // La marca de vigencia se redondea al segundo hacia arriba (ver
-        // Usuario.normalizarVigenciaDeTokens), de modo que puede quedar por delante
-        // de este instante. Emitir con `now` haria que el token naciera revocado y
-        // que el login devolviera 401 sobre una credencial recien emitida.
         Instant marcaVigencia = usuario.getTokensValidosDesde().toInstant();
         Instant issuedAt = now.isBefore(marcaVigencia) ? marcaVigencia : now;
 
         JwtClaimsSet claims = JwtClaimsSet.builder()
                 .issuer("dentalcite")
                 .issuedAt(issuedAt)
-                // Las ocho horas se cuentan desde el `iat` emitido, no desde `now`:
-                // si la marca de vigencia lo empuja hacia delante, el token seguiria
-                // durando ocho horas exactas (HU-03).
                 .expiresAt(issuedAt.plus(8, ChronoUnit.HOURS))
                 .subject(usuario.getId().toString())
                 .claim("rol", usuario.getRol())

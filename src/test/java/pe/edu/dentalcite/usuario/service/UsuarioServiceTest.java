@@ -1,11 +1,15 @@
 package pe.edu.dentalcite.usuario.service;
 
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import pe.edu.dentalcite.usuario.api.dto.CambioPasswordRequestDTO;
 import pe.edu.dentalcite.usuario.api.dto.UsuarioResponseDTO;
@@ -15,6 +19,7 @@ import pe.edu.dentalcite.usuario.domain.Usuario;
 import pe.edu.dentalcite.usuario.repository.UsuarioRepository;
 
 import java.time.OffsetDateTime;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -236,6 +241,49 @@ class UsuarioServiceTest {
     }
 
     @Test
+    void crearUsuario_conRolPacienteSinDocumento_arrojaIllegalArgumentException() {
+        // Sin documento no hay con qué encontrar su ficha.
+        when(usuarioRepository.existsByCorreo("alta@dentalcite.com")).thenReturn(false);
+
+        assertThrows(IllegalArgumentException.class,
+                () -> usuarioService.crearUsuario(altaDePersonal("PACIENTE", null)));
+        verify(usuarioRepository, never()).save(any());
+    }
+
+    @Test
+    void crearUsuario_conRolPacienteSinFichaRegistrada_pideRegistrarloPrimeroYNoCreaFicha() {
+        // La cuenta del paciente se abre sobre alguien ya registrado: una ficha
+        // creada aquí no tendría nombres ni consentimiento.
+        when(usuarioRepository.existsByCorreo("alta@dentalcite.com")).thenReturn(false);
+        when(fichaRepository.findByTipoDocumentoAndDocumento("DNI", "40123456")).thenReturn(Optional.empty());
+
+        IllegalStateException ex = assertThrows(IllegalStateException.class,
+                () -> usuarioService.crearUsuario(altaDePersonal("PACIENTE", "40123456")));
+
+        assertTrue(ex.getMessage().contains("regístrelo primero como paciente"));
+        verify(fichaRepository, never()).save(any());
+        verify(usuarioRepository, never()).save(any());
+    }
+
+    @Test
+    void crearUsuario_conRolPacienteYFichaSinCuenta_laVincula() {
+        UUID fichaId = UUID.randomUUID();
+        pe.edu.dentalcite.ficha.domain.Ficha existente = pe.edu.dentalcite.ficha.domain.Ficha.builder()
+                .id(fichaId).tipoDocumento("DNI").documento("40123456").numeroHistoria("HC-00007").build();
+
+        when(usuarioRepository.existsByCorreo("alta@dentalcite.com")).thenReturn(false);
+        when(fichaRepository.findByTipoDocumentoAndDocumento("DNI", "40123456")).thenReturn(Optional.of(existente));
+        when(usuarioRepository.existsByFichaId(fichaId)).thenReturn(false);
+        when(passwordEncoder.encode(anyString())).thenReturn("hash");
+        when(usuarioRepository.save(any(Usuario.class))).thenAnswer(i -> i.getArgument(0));
+
+        UsuarioResponseDTO res = usuarioService.crearUsuario(altaDePersonal("PACIENTE", "40123456"));
+
+        assertEquals(fichaId, res.getFichaId());
+        verify(fichaRepository, never()).save(any());
+    }
+
+    @Test
     void obtenerUsuario_noExponeNingunaContrasena() {
         // El campo solo lo rellena el alta: ninguna lectura posterior puede traerlo.
         when(usuarioRepository.findById(usuarioId)).thenReturn(Optional.of(usuario));
@@ -403,5 +451,62 @@ class UsuarioServiceTest {
         when(usuarioRepository.findById(usuarioId)).thenReturn(Optional.empty());
 
         assertThrows(ResourceNotFoundException.class, () -> usuarioService.obtenerUsuario(usuarioId));
+    }
+
+    @AfterEach
+    void limpiarSesion() {
+        SecurityContextHolder.clearContext();
+    }
+
+    /** El administrador que pide la operación es la propia cuenta del test. */
+    private void autenticarComoLaMismaCuenta() {
+        SecurityContextHolder.getContext().setAuthentication(new UsernamePasswordAuthenticationToken(
+                usuarioId.toString(), null, List.of(new SimpleGrantedAuthority("SCOPE_ADMINISTRADOR"))));
+    }
+
+    @Test
+    void actualizarUsuario_desactivarLaPropiaCuenta_lanzaIllegalStateYNoGuarda() {
+        // Se expulsaría de la sesión y, siendo el único administrador, nadie podría
+        // reactivarla.
+        autenticarComoLaMismaCuenta();
+        UsuarioUpdateRequestDTO req = new UsuarioUpdateRequestDTO();
+        req.setActivo(false);
+        when(usuarioRepository.findById(usuarioId)).thenReturn(Optional.of(usuario));
+
+        assertThrows(IllegalStateException.class, () -> usuarioService.actualizarUsuario(usuarioId, req));
+
+        assertTrue(usuario.getActivo());
+        verify(usuarioRepository, never()).save(any());
+    }
+
+    @Test
+    void reemplazarUsuario_cambiarElRolDeLaPropiaCuenta_lanzaIllegalState() {
+        autenticarComoLaMismaCuenta();
+        pe.edu.dentalcite.usuario.api.dto.UsuarioReplaceRequestDTO req = new pe.edu.dentalcite.usuario.api.dto.UsuarioReplaceRequestDTO();
+        req.setNombre("Persona de Prueba");
+        req.setRol("PACIENTE");
+        req.setActivo(true);
+        when(usuarioRepository.findById(usuarioId)).thenReturn(Optional.of(usuario));
+
+        assertThrows(IllegalStateException.class, () -> usuarioService.reemplazarUsuario(usuarioId, req));
+
+        assertEquals("RECEPCIONISTA", usuario.getRol());
+        verify(usuarioRepository, never()).save(any());
+    }
+
+    @Test
+    void actualizarUsuario_cambiarseSoloElNombre_sePermite() {
+        // El nombre no toca la autorización: no hay nada que proteger.
+        autenticarComoLaMismaCuenta();
+        UsuarioUpdateRequestDTO req = new UsuarioUpdateRequestDTO();
+        req.setNombre("Nombre Corregido");
+        req.setRol("RECEPCIONISTA");
+        req.setActivo(true);
+        when(usuarioRepository.findById(usuarioId)).thenReturn(Optional.of(usuario));
+        when(usuarioRepository.save(any(Usuario.class))).thenAnswer(i -> i.getArgument(0));
+
+        UsuarioResponseDTO res = usuarioService.actualizarUsuario(usuarioId, req);
+
+        assertEquals("Nombre Corregido", res.getNombre());
     }
 }

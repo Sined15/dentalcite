@@ -33,9 +33,15 @@ import pe.edu.dentalcite.usuario.repository.UsuarioRepository;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import static org.hamcrest.Matchers.containsInRelativeOrder;
 import static org.hamcrest.Matchers.hasItem;
@@ -261,6 +267,36 @@ class CierreDeCitaIntegrationTest {
                 .andExpect(status().isOk());
         registrar(cita.getId(), "NO_ASISTIO", recepcionistaId, "SCOPE_RECEPCIONISTA")
                 .andExpect(status().isConflict());
+    }
+
+    @Test
+    void registrarResultado_dosCierresSimultaneos_soloUnoProsperaYQuedaUnaTransicion() throws Exception {
+        // Leída a la vez, las dos peticiones veían la cita confirmada y las dos la
+        // cerraban: la bitácora acababa con dos transiciones desde el mismo estado,
+        // y la cita, con el resultado que escribiera la última.
+        Cita cita = sembrar(luisId, 2, Cita.ESTADO_CONFIRMADA);
+
+        List<Integer> estados = Collections.synchronizedList(new ArrayList<>());
+        CountDownLatch salida = new CountDownLatch(1);
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        List<Future<?>> tareas = new ArrayList<>();
+        for (String resultado : List.of("ATENDIDA", "NO_ASISTIO")) {
+            tareas.add(pool.submit(() -> {
+                salida.await();
+                estados.add(registrar(cita.getId(), resultado, recepcionistaId, "SCOPE_RECEPCIONISTA")
+                        .andReturn().getResponse().getStatus());
+                return null;
+            }));
+        }
+        salida.countDown();
+        for (Future<?> tarea : tareas) {
+            tarea.get(30, TimeUnit.SECONDS);
+        }
+        pool.shutdown();
+
+        assertEquals(1, estados.stream().filter(e -> e == 200).count(), "estados: " + estados);
+        assertEquals(1, estados.stream().filter(e -> e == 409).count(), "estados: " + estados);
+        assertEquals(1, historialRepository.findByCitaIdOrderByOcurridoEnAsc(cita.getId()).size());
     }
 
     // ------------------------------------------------------------------

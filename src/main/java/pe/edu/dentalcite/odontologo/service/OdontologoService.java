@@ -3,8 +3,10 @@ package pe.edu.dentalcite.odontologo.service;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import pe.edu.dentalcite.common.api.Ordenacion;
 import pe.edu.dentalcite.common.exception.ResourceNotFoundException;
 import pe.edu.dentalcite.especialidad.domain.Especialidad;
 import pe.edu.dentalcite.especialidad.repository.EspecialidadRepository;
@@ -27,6 +29,9 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class OdontologoService {
 
+    /** Por lo que tiene sentido ordenar el listado; un orden desconocido se descarta. */
+    private static final Set<String> ORDENABLES = Set.of("apellidos", "nombres", "cop", "activo", "creadoEn");
+
     private static final String ROL_ODONTOLOGO = "ODONTOLOGO";
 
     private final OdontologoRepository odontologoRepository;
@@ -36,7 +41,8 @@ public class OdontologoService {
 
     @Transactional(readOnly = true)
     public Page<OdontologoResponseDTO> listarOdontologos(Pageable pageable) {
-        return odontologoRepository.findAll(pageable).map(this::mapOdontologo);
+        return odontologoRepository.findAll(Ordenacion.cribar(pageable, ORDENABLES, Sort.unsorted()))
+                .map(this::mapOdontologo);
     }
 
     @Transactional

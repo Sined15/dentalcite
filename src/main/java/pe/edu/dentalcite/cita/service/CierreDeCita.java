@@ -23,42 +23,13 @@ import java.time.ZoneId;
 import java.util.Set;
 import java.util.UUID;
 
-/**
- * Registro del resultado de una cita (HU-16 · RF-22 · RN-09).
- *
- * <p>Clase aparte de {@link CitaService} por el mismo motivo que
- * {@link CancelacionService}: aquel <strong>no</strong> es {@code @Transactional}
- * a propósito, porque el reintento de RF-16 necesita abrir una transacción nueva
- * por intento, y aquí las dos escrituras —el estado y la bitácora— tienen que
- * caer juntas o no caer. Son dos contratos transaccionales incompatibles en la
- * misma clase.
- *
- * <h2>Por qué no se puede cerrar una cita que aún no ha terminado</h2>
- *
- * Las restricciones de exclusión de {@code V13} son <em>parciales sobre
- * CONFIRMADA</em>: es lo que hace que cancelar libere la franja en el acto. Pero
- * eso mismo significa que sacar una cita de CONFIRMADA la retira de la
- * comprobación de solapamiento, y si la cita todavía no ha terminado su franja
- * sigue ocupada de verdad: otra reserva podría colocarse encima del paciente que
- * está en el sillón.
- *
- * <p>No es una restricción inventada para tapar eso: RF-22 empareja esta
- * operación con «listar las citas pendientes de cierre», y RN-09 define
- * pendiente de cierre como «la confirmada cuya hora de fin ya pasó». Registrar el
- * resultado de algo que no ha ocurrido no es un caso de uso, y el 409 lo dice.
- */
 @Slf4j
 @Service
 public class CierreDeCita {
 
-    /** Los dos únicos resultados que RF-22 admite. */
     private static final Set<String> RESULTADOS =
             Set.of(Cita.ESTADO_ATENDIDA, Cita.ESTADO_NO_ASISTIO);
 
-    /**
-     * Quién puede cerrar la cita de cualquier odontólogo. El ODONTOLOGO no está:
-     * a él lo deja pasar el guard por ser el dueño del registro, y solo del suyo.
-     */
     private static final Set<String> ROLES_PRIVILEGIADOS =
             Set.of("SCOPE_RECEPCIONISTA", "SCOPE_ADMINISTRADOR");
 
@@ -66,11 +37,6 @@ public class CierreDeCita {
     private final CitaHistorialRepository historialRepository;
     private final UsuarioRepository usuarioRepository;
 
-    /**
-     * La cita atendida ocupa una sesión del plan de su paciente, y lo hace dentro
-     * de esta misma transacción: si el cierre se deshace, la sesión vuelve a
-     * quedar pendiente con él.
-     */
     private final EnlaceDeSesiones enlaceDeSesiones;
     private final ZoneId zona;
 
@@ -86,36 +52,18 @@ public class CierreDeCita {
         this.zona = ZoneId.of(zonaHoraria);
     }
 
-    /**
-     * El orden de las comprobaciones es contrato:
-     *
-     * <ol>
-     *   <li>el resultado es uno de los dos válidos, que da el 400;</li>
-     *   <li>la cita existe, que da el 404;</li>
-     *   <li>quién pregunta puede tocarla, que da el 403 — <em>antes</em> de mirar
-     *       su estado, para no confirmar de rebote en qué estado está una cita
-     *       ajena (RNF-04);</li>
-     *   <li>sigue CONFIRMADA, que da el 409 de RN-09;</li>
-     *   <li>ya ha terminado, que da el otro 409.</li>
-     * </ol>
-     */
     @Transactional
     public CitaResponseDTO registrarResultado(UUID citaId, String resultado) {
         String estadoNuevo = normalizarResultado(resultado);
 
-        Cita cita = citaRepository.findById(citaId)
+        Cita cita = citaRepository.findParaTransicion(citaId)
                 .orElseThrow(() -> new ResourceNotFoundException("Cita no encontrada"));
 
-        // «ODONTOLOGO (la propia)»: recepción y administración cierran cualquiera;
-        // el odontólogo, solo las de su propio registro. El PACIENTE no llega
-        // hasta aquí —SecurityConfig lo corta por ruta—, pero si llegara tampoco
-        // pasaría: su ficha no es la de ningún odontólogo.
         OdontologoOwnershipGuard.verificar(usuarioRepository, cita.getOdontologo(),
                 ROLES_PRIVILEGIADOS, true,
-                "No puede registrar el resultado de citas de otro odontólogo (RNF-04).");
+                "No puede registrar el resultado de esta cita.");
 
         if (!Cita.ESTADO_CONFIRMADA.equals(cita.getEstado())) {
-            // RN-09 es una máquina sin retorno: un estado final no se reescribe.
             throw new IllegalStateException("La cita " + cita.getCodigo() + " ya esta en estado "
                     + cita.getEstado() + ", que es final, y su resultado no puede cambiarse (RN-09).");
         }
@@ -131,11 +79,6 @@ public class CierreDeCita {
         cita.setEstado(estadoNuevo);
         citaRepository.save(cita);
 
-        // RF-21: la transición, con su fecha, su responsable y su marca temporal.
-        // Aquí sí se escribe en la bitácora, al contrario que en el alta: esta
-        // operación no corre en el camino disputado de HU-10 —la cita ya existe y
-        // nadie compite por su fila—, así que no puede cerrar el ciclo de espera
-        // que obligó a dejar el alta fuera.
         historialRepository.save(CitaHistorial.builder()
                 .cita(cita)
                 .estadoAnterior(estadoAnterior)
@@ -143,14 +86,8 @@ public class CierreDeCita {
                 .usuario(responsable())
                 .build());
 
-        // No se toca `franjasCache`: la franja de una cita que ya terminó no la
-        // ofrece nadie —el motor solo mira desde ahora hacia adelante—, así que
-        // invalidar la caché aquí sería trabajo inútil en cada cierre.
-
         CitaResponseDTO respuesta = mapear(cita);
 
-        // Solo la atendida ocupa una sesión: la consulta a la que el paciente no
-        // vino no ha hecho avanzar ningún tratamiento.
         if (Cita.ESTADO_ATENDIDA.equals(estadoNuevo)) {
             enlaceDeSesiones.enlazarCitaAtendida(cita).ifPresent(ocupada ->
                     respuesta.setSesionEnlazada(CitaResponseDTO.SesionEnlazada.builder()
@@ -164,11 +101,6 @@ public class CierreDeCita {
         return respuesta;
     }
 
-    /**
-     * Un resultado desconocido es un 400 y no una página vacía ni un 500: quien
-     * escribe «ATENDIDO» o «asistio» tiene una errata, y decírselo es más útil
-     * que dejar la cita como estaba sin explicación.
-     */
     private static String normalizarResultado(String resultado) {
         if (resultado == null || resultado.isBlank()) {
             throw new IllegalArgumentException("El resultado es obligatorio");
@@ -182,12 +114,6 @@ public class CierreDeCita {
         return normalizado;
     }
 
-    /**
-     * Quién cierra (RF-21). Devuelve {@code null} en vez de fallar si el token no
-     * resuelve a un usuario, por lo mismo que {@link CancelacionService}: perder
-     * la bitácora entera por no poder nombrar al responsable sería peor que
-     * registrarla sin él, y la autorización ya se resolvió más arriba.
-     */
     private Usuario responsable() {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
         if (auth == null || !auth.isAuthenticated()) {
